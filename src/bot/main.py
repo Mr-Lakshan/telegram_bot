@@ -117,6 +117,7 @@ else:
 APPROVAL_CHAT_ID = int(os.getenv("APPROVAL_CHAT_ID", "0"))
 APPROVAL_ENABLED = os.getenv("APPROVAL_ENABLED", "True") == "True"
 approval_handler = None  # Initialized in main() after bot_client is ready
+call_analyzer = None     # Call-recording analyzer (KI Freigaben), set in main()
 
 # ── Phase 3: Dynamic Handler ──
 dynamic_handler = DynamicHandler(
@@ -1003,38 +1004,31 @@ async def handle_incoming_message(event):
         # ══════════════════════════════════════════════════════════════════
 
         # ══════════════════════════════════════════════════════════════════
-        # SOP CHECK: Voice/text SOP in KI Freigaben (needs event access)
+        # SOP / CALL CHECK: Audio in KI Freigaben (needs event access)
         # Must be BEFORE _run_ai_analysis because we need event.message
         # ══════════════════════════════════════════════════════════════════
         if is_group and chat_id and APPROVAL_CHAT_ID and chat_id == abs(APPROVAL_CHAT_ID) % 10**10:
             if sender_id != BOT_USER_ID:  # Allow any human member, skip bot
                 message = event.message
-                # Voice message → SOP via Whisper
-                if message and (message.voice or message.audio or
-                    (message.document and hasattr(message.document, 'mime_type') and
-                     message.document.mime_type and 'audio' in message.document.mime_type)):
-                    print(f"🎤 Voice message in KI Freigaben — transcribing + saving...")
+                # ── Audio/Video in KI Freigaben → fragen: SOP oder Gesprächsanalyse? ──
+                _is_media = bool(message and (message.voice or message.audio or message.video or
+                    (message.document and getattr(message.document, 'mime_type', '') and
+                     (str(message.document.mime_type).startswith('audio/') or
+                      str(message.document.mime_type).startswith('video/')))))
+                if _is_media:
+                    print("🎧 Audio/Video in KI Freigaben — frage SOP vs. Analyse…")
                     try:
-                        import tempfile
-                        voice_path = os.path.join(tempfile.gettempdir(), f"voice_{message.id}.ogg")
-                        await user_client.download_media(message, voice_path)
-                        result = await sop_manager.process_message(voice_path=voice_path)
-                        print(f"   📝 SOP result: {result[:80] if result else 'None'}...")
-                        if result:
-                            try:
-                                await bot_client.send_message(APPROVAL_CHAT_ID, result)
-                                print(f"   ✅ SOP confirmation sent!")
-                            except Exception as send_err:
-                                print(f"   ⚠️ Send error: {send_err}")
-                                # Retry without markdown
-                                clean = result.replace('**', '').replace('__', '')
-                                await bot_client.send_message(APPROVAL_CHAT_ID, clean)
-                        try:
-                            os.remove(voice_path)
-                        except:
-                            pass
+                        await bot_client.send_message(
+                            APPROVAL_CHAT_ID,
+                            "🎧 Aufnahme empfangen — was soll ich tun?",
+                            buttons=[[
+                                Button.inline("📝 Als SOP speichern", data=f"kifa:sop:{chat_id}:{message.id}".encode()),
+                                Button.inline("📞 Gespräch analysieren", data=f"kifa:call:{chat_id}:{message.id}".encode()),
+                            ]],
+                            reply_to=message.id,
+                        )
                     except Exception as e:
-                        print(f"   ⚠️ Voice SOP error: {e}")
+                        print(f"   ⚠️ KI Freigaben media prompt error: {e}")
                     return
 
         # Voice messages in non-KI-Freigaben groups — skip (no text to analyze)
@@ -1843,6 +1837,38 @@ async def main():
                 await approval_handler.handle_callback(event)
             elif data.startswith('cancel_edit:'):
                 await approval_handler.handle_cancel_edit(event)
+            elif data.startswith('kifa:'):
+                # KI Freigaben: Aufnahme → SOP oder Gesprächsanalyse (Button-Wahl)
+                try:
+                    parts = data.split(':')
+                    action, cid, mid = parts[1], int(parts[2]), int(parts[3])
+                    orig = await user_client.get_messages(cid, ids=mid)
+                    pm = await event.get_message()
+                    if not orig:
+                        await event.answer("⚠️ Aufnahme nicht gefunden")
+                    elif action == 'call':
+                        try: await pm.edit("📞 Gespräch wird analysiert…", buttons=None)
+                        except Exception: pass
+                        await event.answer("📞 Analyse gestartet")
+                        if call_analyzer:
+                            await call_analyzer.analyze(orig)
+                    elif action == 'sop':
+                        try: await pm.edit("📝 Wird als SOP gespeichert…", buttons=None)
+                        except Exception: pass
+                        await event.answer("📝 SOP gestartet")
+                        import tempfile
+                        vp = os.path.join(tempfile.gettempdir(), f"voice_{orig.id}.ogg")
+                        await user_client.download_media(orig, vp)
+                        res = await sop_manager.process_message(voice_path=vp)
+                        if res:
+                            try: await bot_client.send_message(APPROVAL_CHAT_ID, res)
+                            except Exception: await bot_client.send_message(APPROVAL_CHAT_ID, res.replace('**','').replace('__',''))
+                        try: os.remove(vp)
+                        except Exception: pass
+                except Exception as e:
+                    print(f"⚠️ kifa callback error: {e}")
+                    try: await event.answer("⚠️ Fehler")
+                    except Exception: pass
             elif data.startswith('leadsrc:'):
                 try:
                     await lead_tracker.handle_callback(event)
@@ -1956,7 +1982,18 @@ async def main():
         openai_api_key=OPENAI_API_KEY,
     )
     baufortschritt.start_scheduler()
-    
+
+    # ── Call-Analyse: Kundengespräche transkribieren + auswerten (KI Freigaben) ──
+    global call_analyzer
+    from bot.reports.call_analysis import CallAnalyzer
+    call_analyzer = CallAnalyzer(
+        user_client=user_client,
+        bot_client=bot_client,
+        approval_chat_id=APPROVAL_CHAT_ID,
+        openai_api_key=OPENAI_API_KEY,
+    )
+    print("✅ CallAnalyzer ready (KI Freigaben: SOP/Analyse Buttons)")
+
     # ── /fortschritt — manuelle Baufortschritt-Analyse (on-demand) ──
     @user_client.on(events.NewMessage(pattern=r'^/fortschritt', incoming=True, outgoing=True))
     async def fortschritt_cmd(event):
