@@ -53,3 +53,17 @@ services:
       - ./bot_data.db:/app/bot_data.db
     env_file:
       - .env
+  transcription_api:
+    build: .
+    container_name: transcription_api
+    working_dir: /app
+    command: python services/transcription_api/app.py
+    environment:
+      - PYTHONPATH=/app/src
+      - PYTHONUNBUFFERED=1
+    restart: always
+    ports:
+      - "5003:5003"
+    env_file:
+      - .env
+ 
