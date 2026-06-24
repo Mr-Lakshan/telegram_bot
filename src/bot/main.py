@@ -148,6 +148,8 @@ sop_manager = SOPManager(
 # from the admin/dev groups and answers retrieval questions for free.
 link_extractor = LinkExtractor(db_path=DB)
 link_query     = LinkQueryHandler(link_extractor)
+from bot.knowledge.self_knowledge import SelfKnowledge, is_capability_question
+self_knowledge = SelfKnowledge(openai_api_key=OPENAI_API_KEY)
 
 LINK_EXTRACTION_ENABLED = os.getenv("LINK_EXTRACTION_ENABLED", "True") == "True"
 
@@ -1129,6 +1131,15 @@ async def _handle_ki_freigaben_question(text, translated_text, sender_name, chat
             return
 
         question = translated_text or text
+        # Schritt -1: Frage nach den Bot-Funktionen? (Selbstauskunft, günstig)
+        try:
+            if is_capability_question(question):
+                ans = self_knowledge.answer(question)
+                await bot_client.send_message(APPROVAL_CHAT_ID, ans)
+                print("   ✅ Selbstauskunft (Funktionen) gesendet")
+                return
+        except Exception as e:
+            print(f"   ⚠️ Selbstauskunft Fehler: {e}")
 
         # Step 0: Saved link / procedure / guideline? (instant, free, no AI)
         if LINK_EXTRACTION_ENABLED:
