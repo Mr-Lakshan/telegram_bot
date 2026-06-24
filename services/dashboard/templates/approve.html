@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Message Approval - AI Bot</title>
+    <style>
+        :root {
+            --color-offwhite: #F2F0EF;
+            --color-gray: #BBBDBC;
+            --color-teal: #245F73;
+            --color-brown: #733E24;
+            --color-teal-light: rgba(36, 95, 115, 0.1);
+            --color-teal-dark: #1a4858;
+            --color-success: #2e7d32;
+            --color-success-bg: #e8f5e9;
+            --color-warning: #f57c00;
+            --color-error: #d32f2f;
+            --color-error-bg: #ffebee;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, var(--color-teal) 0%, var(--color-teal-dark) 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 16px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            max-width: 600px;
+            width: 100%;
+            padding: clamp(24px, 5vw, 40px);
+            animation: slideUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        
+        .header h1 {
+            color: #1a1a1a;
+            font-size: clamp(22px, 5vw, 28px);
+            margin-bottom: 12px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 8px 16px;
+            background: var(--color-teal-light);
+            color: var(--color-teal);
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        
+        .message-box {
+            background: var(--color-offwhite);
+            border-radius: 16px;
+            padding: clamp(20px, 4vw, 25px);
+            margin-bottom: 24px;
+            border: 1px solid rgba(36, 95, 115, 0.08);
+        }
+        
+        .message-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid rgba(36, 95, 115, 0.12);
+            gap: 12px;
+        }
+        
+        .avatar {
+            width: 50px;
+            height: 50px;
+            min-width: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--color-teal), var(--color-brown));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 20px;
+            font-weight: 600;
+            box-shadow: 0 2px 8px rgba(36, 95, 115, 0.2);
+        }
+        
+        .sender-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .sender-info h3 {
+            color: #1a1a1a;
+            font-size: 18px;
+            margin-bottom: 4px;
+            font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .sender-info p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .message-content {
+            margin: 16px 0;
+        }
+        
+        .label {
+            display: block;
+            color: var(--color-teal);
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+        
+        .message-text {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            color: #333;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            border-left: 4px solid var(--color-teal);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        
+        .ai-suggestion {
+            background: #f0f9ff;
+            border-left-color: var(--color-teal);
+        }
+        
+        #editArea {
+            display: none;
+            margin-top: 20px;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 16px;
+            border: 2px solid rgba(36, 95, 115, 0.2);
+            border-radius: 12px;
+            font-size: 15px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 100px;
+            transition: border-color 0.3s;
+            color: #333;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: var(--color-teal);
+            box-shadow: 0 0 0 3px rgba(36, 95, 115, 0.1);
+        }
+        
+        .buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-top: 24px;
+        }
+        
+        @media (max-width: 480px) {
+            .buttons {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        button {
+            padding: 16px 24px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .btn-send {
+            background: var(--color-success);
+            color: white;
+        }
+        
+        .btn-edit {
+            background: var(--color-warning);
+            color: white;
+        }
+        
+        .btn-skip {
+            background: var(--color-error);
+            color: white;
+        }
+        
+        .btn-confirm {
+            background: var(--color-teal);
+            color: white;
+        }
+        
+        .btn-cancel {
+            background: var(--color-gray);
+            color: white;
+        }
+        
+        .success-message, .error-message {
+            padding: 16px;
+            border-radius: 12px;
+            margin-top: 20px;
+            display: none;
+            animation: fadeIn 0.3s;
+            font-weight: 500;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .success-message {
+            background: var(--color-success-bg);
+            color: var(--color-success);
+            border: 2px solid var(--color-success);
+        }
+        
+        .error-message {
+            background: var(--color-error-bg);
+            color: var(--color-error);
+            border: 2px solid var(--color-error);
+        }
+        
+        .loading {
+            pointer-events: none;
+            opacity: 0.6;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Mobile optimizations */
+        @media (max-width: 480px) {
+            body {
+                padding: 12px;
+            }
+            
+            .message-header {
+                flex-wrap: wrap;
+            }
+            
+            button {
+                padding: 14px 20px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📨 Message Approval</h1>
+            <span class="badge">{{ data.language }}</span>
+        </div>
+        
+        <div class="message-box">
+            <div class="message-header">
+                <div class="avatar">{{ data.sender_name[0].upper() }}</div>
+                <div class="sender-info">
+                    <h3>{{ data.sender_name }}</h3>
+                    <p>Just now</p>
+                </div>
+            </div>
+            
+            <div class="message-content">
+                <span class="label">Incoming Message</span>
+                <div class="message-text">{{ data.incoming_msg }}</div>
+                
+                <span class="label">🤖 AI Suggestion</span>
+                <div class="message-text ai-suggestion">{{ data.ai_suggestion }}</div>
+            </div>
+            
+            <div id="editArea">
+                <span class="label">✏️ Edit Message</span>
+                <textarea id="editText" placeholder="Type your edited message here...">{{ data.ai_suggestion }}</textarea>
+            </div>
+        </div>
+        
+        <div class="buttons" id="mainButtons">
+            <button class="btn-send" onclick="sendMessage()">
+                ✅ Send
+            </button>
+            <button class="btn-edit" onclick="showEditArea()">
+                ✏️ Edit
+            </button>
+            <button class="btn-skip" onclick="skipMessage()">
+                ✕ Skip
+            </button>
+        </div>
+        
+        <div class="buttons" id="editButtons" style="display: none;">
+            <button class="btn-confirm" onclick="sendEditedMessage()">
+                ✅ Send Edited
+            </button>
+            <button class="btn-cancel" onclick="hideEditArea()">
+                ↩️ Cancel
+            </button>
+        </div>
+        
+        <div class="success-message" id="successMsg"></div>
+        <div class="error-message" id="errorMsg"></div>
+    </div>
+    
+    <script>
+        const token = '{{ token }}';
+        
+        function showEditArea() {
+            document.getElementById('editArea').style.display = 'block';
+            document.getElementById('mainButtons').style.display = 'none';
+            document.getElementById('editButtons').style.display = 'grid';
+            document.getElementById('editText').focus();
+        }
+        
+        function hideEditArea() {
+            document.getElementById('editArea').style.display = 'none';
+            document.getElementById('mainButtons').style.display = 'grid';
+            document.getElementById('editButtons').style.display = 'none';
+        }
+        
+        function showSuccess(message) {
+            const successMsg = document.getElementById('successMsg');
+            successMsg.textContent = '✅ ' + message;
+            successMsg.style.display = 'block';
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 2000);
+        }
+        
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.textContent = '✕ ' + message;
+            errorMsg.style.display = 'block';
+            setTimeout(() => {
+                errorMsg.style.display = 'none';
+            }, 5000);
+        }
+        
+        function setLoading(button, loading) {
+            if (loading) {
+                button.classList.add('loading');
+                button.innerHTML = '<span class="spinner"></span> Processing...';
+            }
+        }
+        
+        async function sendMessage() {
+            const btn = event.target;
+            setLoading(btn, true);
+            
+            try {
+                const response = await fetch(`/api/send/${token}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess(data.message);
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Network error. Please try again.');
+            }
+        }
+        
+        async function sendEditedMessage() {
+            const btn = event.target;
+            const editedText = document.getElementById('editText').value.trim();
+            
+            if (!editedText) {
+                showError('Message cannot be empty!');
+                return;
+            }
+            
+            setLoading(btn, true);
+            
+            try {
+                const response = await fetch(`/api/edit/${token}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message: editedText })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess(data.message);
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Network error. Please try again.');
+            }
+        }
+        
+        async function skipMessage() {
+            const btn = event.target;
+            setLoading(btn, true);
+            
+            try {
+                const response = await fetch(`/api/skip/${token}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess(data.message);
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Network error. Please try again.');
+            }
+        }
+    </script>
+</body>
+</html>

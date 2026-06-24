@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Group Creator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #0088cc 0%, #005580 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .alert.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .alert.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .alert.show {
+            display: block;
+        }
+
+        .section {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+
+        .section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 22px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section h2::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 24px;
+            background: #0088cc;
+            border-radius: 2px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #495057;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .form-group input[type="text"],
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .form-group input[type="text"]:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #0088cc;
+            box-shadow: 0 0 0 3px rgba(0, 136, 204, 0.1);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .checkbox-group {
+            background: white;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+
+        .checkbox-group h3 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #495057;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+
+        .checkbox-item label {
+            margin: 0;
+            cursor: pointer;
+            font-weight: normal;
+            color: #495057;
+        }
+
+        .form-group .checkbox-inline {
+            display: flex;
+            align-items: center;
+        }
+
+        .form-group .checkbox-inline input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin-right: 8px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #0088cc 0%, #005580 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 136, 204, 0.4);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+            color: white;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(108, 117, 125, 0.4);
+        }
+
+        .group-info {
+            background: white;
+            border: 2px solid #0088cc;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .group-info strong {
+            color: #0088cc;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .help-text {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .section.disabled {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Telegram Group Creator</h1>
+            <p>Create and manage Telegram groups with custom permissions</p>
+        </div>
+
+        <div class="content">
+            <!-- Alert Messages -->
+            <div id="successAlert" class="alert success"></div>
+            <div id="errorAlert" class="alert error"></div>
+
+            <!-- Create Group Section -->
+            <div class="section">
+                <h2>Create Group</h2>
+                <form id="createGroupForm">
+                    <div class="form-group">
+                        <label for="groupTitle">Group Name *</label>
+                        <input type="text" id="groupTitle" name="title" required 
+                               placeholder="Enter group name">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="groupDescription">Description</label>
+                        <textarea id="groupDescription" name="description" 
+                                  placeholder="Enter group description (optional)"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="groupUsers">Initial Members</label>
+                        <input type="text" id="groupUsers" name="users" 
+                               placeholder="username1, username2, username3">
+                        <div class="help-text">Enter usernames separated by commas (without @)</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-inline">
+                            <input type="checkbox" id="isMegagroup" name="is_megagroup" checked>
+                            Create as Supergroup (recommended for 200+ members)
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="createBtn">
+                        <span id="createBtnText">Create Group</span>
+                        <span id="createBtnSpinner" class="loading-spinner" style="display: none;"></span>
+                    </button>
+                </form>
+
+                <div id="groupInfo" class="group-info" style="display: none;">
+                    <strong>✓ Group Created Successfully!</strong><br>
+                    Group ID: <span id="createdGroupId"></span>
+                </div>
+            </div>
+
+            <!-- Set Permissions Section -->
+            <div class="section" id="permissionsSection">
+                <h2>Set User Permissions</h2>
+                <form id="permissionsForm">
+                    <div class="form-group">
+                        <label for="permissionUser">Username</label>
+                        <input type="text" id="permissionUser" name="username" required
+                               placeholder="Enter username (without @)">
+                    </div>
+
+                    <div class="checkbox-group">
+                        <h3>Permissions</h3>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="perm_send_messages" checked>
+                            <label for="perm_send_messages">Send Messages</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="perm_send_media" checked>
+                            <label for="perm_send_media">Send Media</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="perm_send_stickers" checked>
+                            <label for="perm_send_stickers">Send Stickers & GIFs</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="perm_send_polls" checked>
+                            <label for="perm_send_polls">Send Polls</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="perm_add_users">
+                            <label for="perm_add_users">Add Users</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="perm_pin_messages">
+                            <label for="perm_pin_messages">Pin Messages</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="perm_change_info">
+                            <label for="perm_change_info">Change Group Info</label>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="permissionsBtn" style="margin-top: 15px;">
+                        <span id="permissionsBtnText">Set Permissions</span>
+                        <span id="permissionsBtnSpinner" class="loading-spinner" style="display: none;"></span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Promote Admin Section -->
+            <div class="section" id="adminSection">
+                <h2>Promote to Admin</h2>
+                <form id="adminForm">
+                    <div class="form-group">
+                        <label for="adminUser">Username</label>
+                        <input type="text" id="adminUser" name="username" required
+                               placeholder="Enter username (without @)">
+                    </div>
+
+                    <div class="checkbox-group">
+                        <h3>Admin Rights</h3>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="admin_change_info" checked>
+                            <label for="admin_change_info">Change Group Info</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="admin_delete_messages" checked>
+                            <label for="admin_delete_messages">Delete Messages</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="admin_ban_users" checked>
+                            <label for="admin_ban_users">Ban Users</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="admin_invite_users" checked>
+                            <label for="admin_invite_users">Invite Users</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="admin_pin_messages" checked>
+                            <label for="admin_pin_messages">Pin Messages</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="admin_add_admins">
+                            <label for="admin_add_admins">Add New Admins</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="admin_manage_call" checked>
+                            <label for="admin_manage_call">Manage Voice Chats</label>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-secondary" id="adminBtn" style="margin-top: 15px;">
+                        <span id="adminBtnText">Promote to Admin</span>
+                        <span id="adminBtnSpinner" class="loading-spinner" style="display: none;"></span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:5000/api';
+        let createdGroupId = null;
+
+        // ── Helpers ──────────────────────────────────────────────
+        function showSuccess(message) {
+            const el = document.getElementById('successAlert');
+            el.textContent = '✅  ' + message;
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 6000);
+        }
+
+        function showError(message) {
+            const el = document.getElementById('errorAlert');
+            el.textContent = '❌  ' + message;
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 8000);
+        }
+
+        // Updates button text + spinner; also shows an inline status line
+        function setButtonLoading(btnId, textId, spinnerId, isLoading, statusMsg) {
+            const btn     = document.getElementById(btnId);
+            const text    = document.getElementById(textId);
+            const spinner = document.getElementById(spinnerId);
+
+            btn.disabled            = isLoading;
+            text.style.display      = isLoading ? 'none' : 'inline';
+            spinner.style.display   = isLoading ? 'inline-block' : 'none';
+
+            // Show/hide the inline status message below the button
+            const statusId = btnId + 'Status';
+            let statusEl = document.getElementById(statusId);
+            if (!statusEl) {
+                statusEl = document.createElement('p');
+                statusEl.id = statusId;
+                statusEl.style.cssText = 'margin-top:10px;font-size:13px;color:#0088cc;font-style:italic;';
+                btn.parentNode.insertBefore(statusEl, btn.nextSibling);
+            }
+            statusEl.textContent = isLoading ? (statusMsg || 'Working… this may take a few seconds.') : '';
+        }
+
+        function enableSections() {
+            document.getElementById('permissionsSection').classList.remove('disabled');
+            document.getElementById('adminSection').classList.remove('disabled');
+        }
+
+        // fetch with a 70-second timeout (matches server-side timeout)
+        async function fetchWithTimeout(url, options, timeoutMs = 70000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const response = await fetch(url, { ...options, signal: controller.signal });
+                clearTimeout(timer);
+                return response;
+            } catch (err) {
+                clearTimeout(timer);
+                if (err.name === 'AbortError') {
+                    throw new Error('Request timed out. The server is taking too long — please try again.');
+                }
+                throw err;
+            }
+        }
+
+        // Initially disable permissions and admin sections
+        document.getElementById('permissionsSection').classList.add('disabled');
+        document.getElementById('adminSection').classList.add('disabled');
+
+        // ── Create Group ─────────────────────────────────────────
+        document.getElementById('createGroupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            setButtonLoading('createBtn', 'createBtnText', 'createBtnSpinner', true,
+                '⏳ Creating group on Telegram… please wait (may take ~10 s)');
+
+            const formData = {
+                title:        document.getElementById('groupTitle').value.trim(),
+                description:  document.getElementById('groupDescription').value.trim(),
+                users:        document.getElementById('groupUsers').value
+                                .split(',').map(u => u.trim()).filter(Boolean),
+                is_megagroup: document.getElementById('isMegagroup').checked
+            };
+
+            try {
+                const response = await fetchWithTimeout(`${API_BASE_URL}/groups/create`, {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    createdGroupId = data.data.chat_id;
+                    document.getElementById('createdGroupId').textContent = createdGroupId;
+                    document.getElementById('groupInfo').style.display = 'block';
+                    showSuccess(`Group "${data.data.title}" created! ID: ${createdGroupId}`);
+                    enableSections();
+                } else {
+                    showError(data.error || 'Failed to create group');
+                }
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                setButtonLoading('createBtn', 'createBtnText', 'createBtnSpinner', false);
+            }
+        });
+
+        // ── Set Permissions ──────────────────────────────────────
+        document.getElementById('permissionsForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!createdGroupId) { showError('Please create a group first'); return; }
+
+            setButtonLoading('permissionsBtn', 'permissionsBtnText', 'permissionsBtnSpinner', true,
+                '⏳ Applying permissions… please wait');
+
+            const requestData = {
+                username: document.getElementById('permissionUser').value.trim(),
+                permissions: {
+                    send_messages: document.getElementById('perm_send_messages').checked,
+                    send_media:    document.getElementById('perm_send_media').checked,
+                    send_stickers: document.getElementById('perm_send_stickers').checked,
+                    send_polls:    document.getElementById('perm_send_polls').checked,
+                    add_users:     document.getElementById('perm_add_users').checked,
+                    pin_messages:  document.getElementById('perm_pin_messages').checked,
+                    change_info:   document.getElementById('perm_change_info').checked
+                }
+            };
+
+            try {
+                const response = await fetchWithTimeout(
+                    `${API_BASE_URL}/groups/${createdGroupId}/permissions`, {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify(requestData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showSuccess(`Permissions updated for @${requestData.username}`);
+                    document.getElementById('permissionUser').value = '';
+                } else {
+                    showError(data.error || 'Failed to set permissions');
+                }
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                setButtonLoading('permissionsBtn', 'permissionsBtnText', 'permissionsBtnSpinner', false);
+            }
+        });
+
+        // ── Promote Admin ────────────────────────────────────────
+        document.getElementById('adminForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!createdGroupId) { showError('Please create a group first'); return; }
+
+            setButtonLoading('adminBtn', 'adminBtnText', 'adminBtnSpinner', true,
+                '⏳ Promoting user to admin… please wait');
+
+            const requestData = {
+                username: document.getElementById('adminUser').value.trim(),
+                admin_rights: {
+                    change_info:     document.getElementById('admin_change_info').checked,
+                    delete_messages: document.getElementById('admin_delete_messages').checked,
+                    ban_users:       document.getElementById('admin_ban_users').checked,
+                    invite_users:    document.getElementById('admin_invite_users').checked,
+                    pin_messages:    document.getElementById('admin_pin_messages').checked,
+                    add_admins:      document.getElementById('admin_add_admins').checked,
+                    manage_call:     document.getElementById('admin_manage_call').checked
+                }
+            };
+
+            try {
+                const response = await fetchWithTimeout(
+                    `${API_BASE_URL}/groups/${createdGroupId}/admins`, {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify(requestData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showSuccess(`@${requestData.username} promoted to admin!`);
+                    document.getElementById('adminUser').value = '';
+                } else {
+                    showError(data.error || 'Failed to promote admin');
+                }
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                setButtonLoading('adminBtn', 'adminBtnText', 'adminBtnSpinner', false);
+            }
+        });
+    </script>
+</body>
+</html>

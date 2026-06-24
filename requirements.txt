@@ -1,0 +1,10 @@
+flask
+telethon>=1.38
+openai
+python-dotenv
+flask-cors
+google-api-python-client
+google-auth-oauthlib
+anthropic
+requests
+num2words

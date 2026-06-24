@@ -1,0 +1,55 @@
+
+# Restructured (Paket-Layout). Laufzeit-Pfade bleiben relativ (wie bisher) —
+# DB/Session liegen weiter im Wurzelverzeichnis, daher sind die Volumes wie zuvor.
+# Einzige Änderungen: command = python -m bot.main + PYTHONPATH=/app/src.
+
+services:
+  telegram_bot:
+    build: .
+    container_name: telegram_bot
+    working_dir: /app
+    command: python -m bot.main
+    environment:
+      - PYTHONPATH=/app/src
+      - PYTHONUNBUFFERED=1
+    restart: always
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./bot_data.db:/app/bot_data.db
+      - ./bot_session.session:/app/bot_session.session
+      - ./main_session.session:/app/main_session.session
+      - ./user_session.session:/app/user_session.session
+      - ./learning_data.db:/app/learning_data.db          # optional, für Persistenz
+      - ./calendar_token.json:/app/calendar_token.json     # optional, für Persistenz
+    env_file:
+      - .env
+
+  dashboard:
+    build: .
+    container_name: dashboard
+    working_dir: /app
+    command: python services/dashboard/dashboard_groups.py
+    environment:
+      - PYTHONPATH=/app/src
+      - PYTHONUNBUFFERED=1
+    restart: always
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./bot_data.db:/app/bot_data.db
+    env_file:
+      - .env
+
+  group_creator:
+    build: ./services/group_creation
+    container_name: group_creator
+    command: python app.py
+    restart: always
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./group_creator_session.session:/app/group_creator_session.session
+      - ./bot_data.db:/app/bot_data.db
+    env_file:
+      - .env

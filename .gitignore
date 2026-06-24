@@ -1,0 +1,10 @@
+.env
+__pycache__/
+.env.example
+*.db
+*.session
+.env
+__pycache__/
+*.pyc
+calendar_token.json
+test.py

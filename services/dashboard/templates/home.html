@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Ausstehende Genehmigungen</title>
+    <style>
+        :root {
+            --color-offwhite: #F2F0EF;
+            --color-gray: #BBBDBC;
+            --color-teal: #245F73;
+            --color-brown: #733E24;
+            --color-teal-light: rgba(36, 95, 115, 0.1);
+            --color-teal-dark: #1a4858;
+            --color-error: #d32f2f;
+            --color-group: #6a1b9a;
+            --color-group-light: rgba(106, 27, 154, 0.1);
+            --color-dm: #1565c0;
+            --color-dm-light: rgba(21, 101, 192, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: var(--color-offwhite);
+            min-height: 100vh;
+        }
+
+        /* ===== HEADER ===== */
+        .header {
+            background: linear-gradient(135deg, var(--color-teal) 0%, var(--color-teal-dark) 100%);
+            color: white;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(36, 95, 115, 0.15);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .header-left h1 { font-size: clamp(18px, 4vw, 26px); font-weight: 600; margin-bottom: 4px; }
+        .header-left p  { opacity: 0.9; font-size: 13px; }
+
+        /* ===== SKIP ALL BUTTON ===== */
+        .btn-skip-all {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background: rgba(255,255,255,0.15);
+            color: white;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+        .btn-skip-all:hover {
+            background: rgba(211, 47, 47, 0.85);
+            border-color: transparent;
+        }
+
+        /* ===== CONFIRM OVERLAY ===== */
+        .confirm-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .confirm-overlay.show { display: flex; }
+        .confirm-box {
+            background: white;
+            border-radius: 20px;
+            padding: 32px;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            animation: popIn 0.25s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        @keyframes popIn {
+            from { opacity: 0; transform: scale(0.85); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+        .confirm-box .icon { font-size: 52px; margin-bottom: 12px; }
+        .confirm-box h2    { font-size: 20px; color: #1a1a1a; margin-bottom: 8px; }
+        .confirm-box p     { font-size: 14px; color: #666; margin-bottom: 24px; line-height: 1.6; }
+        .confirm-btns      { display: flex; gap: 12px; }
+        .confirm-btns button {
+            flex: 1; padding: 14px; border: none; border-radius: 12px;
+            font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-confirm-yes { background: var(--color-error); color: white; }
+        .btn-confirm-yes:hover { background: #b71c1c; }
+        .btn-confirm-no  { background: var(--color-offwhite); color: #333; }
+        .btn-confirm-no:hover { background: #ddd; }
+
+        /* ===== TOAST ===== */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: #1a1a1a;
+            color: white;
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 9999;
+            transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+            white-space: nowrap;
+        }
+        .toast.show { transform: translateX(-50%) translateY(0); }
+
+        /* ===== CONTAINER ===== */
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+        /* ===== EMPTY STATE ===== */
+        .empty-state {
+            text-align: center; padding: 56px 20px;
+            background: white; border-radius: 16px;
+            box-shadow: 0 1px 3px rgba(36,95,115,0.1); margin-top: 20px;
+        }
+        .empty-icon { font-size: 64px; margin-bottom: 16px; opacity: 0.8; }
+        .empty-state h2 { color: var(--color-teal); margin-bottom: 8px; font-size: 22px; font-weight: 600; }
+        .empty-state p  { color: #666; font-size: 15px; line-height: 1.5; }
+        .empty-state p:last-child { margin-top: 8px; color: var(--color-teal); font-weight: 500; }
+
+        /* ===== GRID ===== */
+        .approvals-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+            gap: 16px;
+            margin-top: 20px;
+        }
+        @media (min-width: 768px) { .approvals-grid { gap: 20px; } }
+
+        /* ===== CARD ===== */
+        .approval-card {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(36,95,115,0.1);
+            transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+            cursor: pointer;
+            border: 1px solid rgba(36,95,115,0.08);
+            position: relative;
+            animation: fadeIn 0.4s ease-out backwards;
+        }
+        .approval-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 16px rgba(36,95,115,0.15);
+            border-color: var(--color-teal);
+        }
+        .approval-card:active { transform: translateY(-2px); }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .approval-card:nth-child(1) { animation-delay: 0.05s; }
+        .approval-card:nth-child(2) { animation-delay: 0.10s; }
+        .approval-card:nth-child(3) { animation-delay: 0.15s; }
+        .approval-card:nth-child(4) { animation-delay: 0.20s; }
+        .approval-card:nth-child(5) { animation-delay: 0.25s; }
+        .approval-card:nth-child(6) { animation-delay: 0.30s; }
+
+        /* ===== SOURCE TAG (GROUP / DM) ===== */
+        .source-tag {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+        }
+        .source-tag.group {
+            background: var(--color-group-light);
+            color: var(--color-group);
+        }
+        .source-tag.dm {
+            background: var(--color-dm-light);
+            color: var(--color-dm);
+        }
+
+        /* ===== CARD INNER ===== */
+        .card-header { display: flex; align-items: center; margin-bottom: 12px; gap: 12px; }
+        .avatar {
+            width: 48px; height: 48px; min-width: 48px; border-radius: 50%;
+            background: linear-gradient(135deg, var(--color-teal), var(--color-brown));
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-size: 18px; font-weight: 600;
+            box-shadow: 0 2px 8px rgba(36,95,115,0.2);
+        }
+        .card-info { flex: 1; min-width: 0; padding-right: 64px; }
+        .card-info h3 {
+            color: #1a1a1a; font-size: 16px; margin-bottom: 4px; font-weight: 600;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .card-meta {
+            font-size: 12px; color: #999; margin-bottom: 4px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .card-meta .group-name { color: var(--color-group); font-weight: 600; }
+        .card-meta .topic-name { color: #555; }
+
+        .badge {
+            display: inline-block; padding: 3px 10px;
+            background: var(--color-teal-light); color: var(--color-teal);
+            border-radius: 20px; font-size: 11px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.3px;
+        }
+
+        .message-preview {
+            background: var(--color-offwhite); border-radius: 12px;
+            padding: 12px 14px; margin: 12px 0;
+            color: #333; font-size: 13px; line-height: 1.6;
+            max-height: 72px; overflow: hidden; position: relative;
+            border-left: 3px solid var(--color-teal);
+        }
+        .message-preview strong { color: var(--color-teal); font-weight: 600; }
+        .message-preview::after {
+            content: ''; position: absolute; bottom: 0; left: 0; right: 0;
+            height: 28px; background: linear-gradient(transparent, var(--color-offwhite));
+        }
+
+        .view-button {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            width: 100%; padding: 13px;
+            background: var(--color-teal); color: white;
+            border: none; border-radius: 12px; font-size: 14px; font-weight: 600;
+            cursor: pointer; transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(36,95,115,0.2);
+        }
+        .view-button:hover  { background: var(--color-teal-dark); }
+        .view-button:active { transform: scale(0.98); }
+
+        /* ===== MOBILE ===== */
+        @media (max-width: 480px) {
+            .header { padding: 16px; }
+            .btn-skip-all { padding: 10px 14px; font-size: 13px; }
+            .container { padding: 14px; }
+            .approval-card { padding: 16px; }
+            .empty-state { padding: 40px 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ===== CONFIRM OVERLAY ===== -->
+<div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-box">
+        <div class="icon">🗑️</div>
+        <h2>Alle überspringen?</h2>
+        <p><strong id="confirmCount">0</strong> ausstehende Nachrichten werden gelöscht.<br>Diese Aktion kann nicht rückgängig gemacht werden!</p>
+        <div class="confirm-btns">
+            <button class="btn-confirm-no"  onclick="closeConfirm()">Abbrechen</button>
+            <button class="btn-confirm-yes" onclick="doSkipAll()">Ja, alle überspringen</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== TOAST ===== -->
+<div class="toast" id="toast"></div>
+
+<!-- ===== HEADER ===== -->
+<div class="header">
+    <div class="header-content">
+        <div class="header-left">
+            <h1>📊 Nachrichten-Freigabe Dashboard</h1>
+            <p>
+                Ausstehend: <strong>{{ approvals|length }}</strong>
+                &nbsp;|&nbsp;
+                🔄 Aktualisierung in <span id="refreshCountdown">30s</span>
+            </p>
+        </div>
+        {% if approvals %}
+        <button class="btn-skip-all" onclick="showConfirm({{ approvals|length }})">
+            🗑️ Alle überspringen ({{ approvals|length }})
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ===== MAIN ===== -->
+<div class="container">
+    {% if approvals %}
+        <div class="approvals-grid" id="approvalsGrid">
+            {% for token, data in approvals.items() %}
+            <div class="approval-card" id="card-{{ token }}" onclick="window.location.href='/approve/{{ token }}'">
+
+                <!-- Group / DM badge (top right) -->
+                {% if data.is_group %}
+                    <span class="source-tag group">👥 Gruppe</span>
+                {% else %}
+                    <span class="source-tag dm">💬 Direktnachricht</span>
+                {% endif %}
+
+                <div class="card-header">
+                    <div class="avatar">{{ data.sender_name[0].upper() }}</div>
+                    <div class="card-info">
+                        <h3>{{ data.sender_name }}</h3>
+
+                        <!-- Group name + topic if available -->
+                        {% if data.is_group and data.chat_title %}
+                        <div class="card-meta">
+                            📣 <span class="group-name">{{ data.chat_title }}</span>
+                            {% if data.topic_name %}
+                                &nbsp;›&nbsp;<span class="topic-name">📌 {{ data.topic_name }}</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        <span class="badge">{{ data.language }}</span>
+                    </div>
+                </div>
+
+                <div class="message-preview">
+                    <strong>Nachricht:</strong> {{ data.incoming_msg }}
+                </div>
+
+                <button class="view-button">
+                    👁️ Ansehen & Freigeben
+                </button>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">✅</div>
+            <h2>Alles klar!</h2>
+            <p>Keine ausstehenden Nachrichten zur Freigabe</p>
+            <p>Nachrichten erscheinen hier, wenn Benutzer Sie kontaktieren</p>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+    // ===== AUTO REFRESH =====
+    let countdown = 30;
+    let isPaused = false;
+
+    setInterval(() => {
+        if (!isPaused) {
+            countdown--;
+            const el = document.getElementById('refreshCountdown');
+            if (el) el.textContent = countdown + 's';
+            if (countdown <= 0) window.location.reload();
+        }
+    }, 1000);
+
+    document.addEventListener('mouseover', e => {
+        if (e.target.closest('.approval-card')) { isPaused = true; }
+    });
+    document.addEventListener('mouseout', e => {
+        if (e.target.closest('.approval-card')) { isPaused = false; countdown = 30; }
+    });
+
+    // ===== CONFIRM DIALOG =====
+    function showConfirm(count) {
+        document.getElementById('confirmCount').textContent = count;
+        document.getElementById('confirmOverlay').classList.add('show');
+        isPaused = true;
+    }
+    function closeConfirm() {
+        document.getElementById('confirmOverlay').classList.remove('show');
+        isPaused = false;
+        countdown = 30;
+    }
+    // Close overlay when clicking background
+    document.getElementById('confirmOverlay').addEventListener('click', function(e) {
+        if (e.target === this) closeConfirm();
+    });
+
+    // ===== TOAST =====
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    // ===== SKIP ALL =====
+    async function doSkipAll() {
+        closeConfirm();
+
+        const cards = document.querySelectorAll('.approval-card[id^="card-"]');
+        const tokens = [...cards].map(c => c.id.replace('card-', ''));
+
+        if (tokens.length === 0) { showToast('Keine Nachrichten gefunden!'); return; }
+
+        showToast(`⏳ ${tokens.length} Nachrichten werden übersprungen...`);
+
+        // Send all skip requests in parallel
+        const results = await Promise.allSettled(
+            tokens.map(token =>
+                fetch(`/api/skip/${token}`, { method: 'POST' })
+                    .then(r => r.json())
+            )
+        );
+
+        const success = results.filter(r => r.status === 'fulfilled' && r.value?.success).length;
+        const failed  = tokens.length - success;
+
+        if (failed === 0) {
+            showToast(`✅ ${success} Nachrichten wurden übersprungen!`);
+        } else {
+            showToast(`✅ ${success} übersprungen  ❌ ${failed} fehlgeschlagen`);
+        }
+
+        setTimeout(() => window.location.reload(), 1500);
+    }
+</script>
+</body>
+</html>
