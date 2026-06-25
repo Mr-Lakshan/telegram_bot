@@ -19,6 +19,10 @@ from typing import Dict, Optional, List
 from openai import OpenAI
 from bot.core.model_config import MODEL_CONFIG, PROMPTS
 
+# Nur "wesentliche" Fragen an KI Freigaben senden (Lothar: keine random Fragen).
+# Höher = strenger (weniger Fragen). Per .env QUESTION_MIN_CONFIDENCE anpassbar.
+MIN_QUESTION_CONFIDENCE = int(os.getenv("QUESTION_MIN_CONFIDENCE", "60"))
+
 
 class QuestionClassifier:
     """
@@ -120,8 +124,8 @@ class QuestionClassifier:
             return 'skip'
 
         confidence = classification.get('confidence', 0)
-        if confidence < 40:
-            return 'skip'
+        if confidence < MIN_QUESTION_CONFIDENCE:
+            return 'skip'  # zu unsicher/unwichtig — nur übersetzt, nicht an Lothar
 
         q_type = classification.get('question_type', 'not_question')
         intent = classification.get('intent', 'none')
