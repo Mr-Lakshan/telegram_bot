@@ -31,6 +31,8 @@ from bot.knowledge.conversation_learner import ConversationLearner
 OPUS_MODEL = "claude-opus-4-7"
 REPORT_HOUR = 19  # 19:00 Uhr German time
 REPORT_MINUTE = 0
+# Standardmäßig KURZER Bericht (nur Zahlen, keine KI-Story). Wieder ausführlich via .env DAILY_REPORT_FULL=True
+DAILY_REPORT_FULL = os.getenv("DAILY_REPORT_FULL", "False") == "True"
 
 # Germany timezone (CET = UTC+1, CEST = UTC+2)
 # Using fixed offset — for proper DST handling, install pytz
@@ -140,8 +142,8 @@ class DailyReport:
                 print("   ℹ️ No messages today — skipping report")
                 return
 
-            # Generate AI analysis with Opus
-            ai_analysis = self._generate_ai_analysis(data)
+            # KI-Analyse (Story) nur im ausführlichen Modus — sonst nur Zahlen
+            ai_analysis = self._generate_ai_analysis(data) if DAILY_REPORT_FULL else ""
 
             # Format report
             report_text = self._format_report(data, ai_analysis)
@@ -396,10 +398,7 @@ Schreibe wie ein persoenlicher Berater, nicht wie ein Report-Generator. Auf Deut
             if isinstance(by_prod, list): by_prod = {}
             for product, count in by_prod.items():
                 lines.append(f"  • {product}: {count}")
-            by_src = lead_stats.get('by_source', {})
-            if isinstance(by_src, list): by_src = {}
-            for source, count in by_src.items():
-                lines.append(f"  📍 Quelle: {source} ({count})")
+            # Quelle/Herkunft bewusst weggelassen (Lothar braucht das nicht)
             lines.append("")
 
         # Questions summary (brief)
@@ -414,12 +413,9 @@ Schreibe wie ein persoenlicher Berater, nicht wie ein Report-Generator. Auf Deut
             lines.append(f"📚 Wissensdatenbank: {kb['total_entries']} Einträge")
             lines.append("")
 
-        # AI Analysis (the main value)
-        lines.extend([
-            "🧠 **KI-Analyse:**",
-            "",
-            ai_analysis,
-        ])
+        # KI-Analyse (Story) nur im ausführlichen Modus
+        if DAILY_REPORT_FULL and ai_analysis:
+            lines.extend(["🧠 **KI-Analyse:**", "", ai_analysis])
 
         return "\n".join(lines)
 
