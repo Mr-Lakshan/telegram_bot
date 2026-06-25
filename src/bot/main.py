@@ -161,6 +161,14 @@ MONITORED_GROUPS = {
 # Inside handlers Telethon gives chat_id WITHOUT the -100 prefix
 # (e.g. 3552835240), so precompute the short forms for matching.
 MONITORED_SHORT = {abs(gid) % 10**10: name for gid, name in MONITORED_GROUPS.items()}
+EXCLUDED_GROUPS = set()
+for _g in os.getenv("EXCLUDED_GROUPS", "-1003552835240,-1003790666199").split(","):
+    _g = _g.strip()
+    if _g:
+        try: EXCLUDED_GROUPS.add(int(_g))
+        except Exception: pass
+EXCLUDED_SHORT = {abs(g) % 10**10 for g in EXCLUDED_GROUPS}
+
 if LINK_EXTRACTION_ENABLED:
     print(f"✅ Link extraction ENABLED for {len(MONITORED_GROUPS)} group(s)")
 else:
@@ -892,7 +900,8 @@ async def handle_incoming_message(event):
             # Links, numbered procedures and "Wichtig:" guidelines get saved so
             # they can be answered instantly later in KI Freigaben.
             if (LINK_EXTRACTION_ENABLED and chat_id
-                    and chat_id in MONITORED_SHORT and text):
+                    and chat_id in MONITORED_SHORT and chat_id not in EXCLUDED_SHORT
+                    and not get_special_group_config(chat_id) and text):
                 try:
                     _grp_name = MONITORED_SHORT[chat_id]
                     _cap = await link_extractor.extract_from_message(
@@ -1249,7 +1258,15 @@ async def _run_ai_analysis(
             construction_prefixes = ['baustart', 'baustelle', 'in bau', 'construction', 'nacharbeit', 'reklamation']
             is_construction_group = any(title_lower.startswith(p) for p in construction_prefixes)
             is_personal_group = not is_construction_group
-
+            # ── Privatchats (DMs) + Spezial-/vertrauliche Gruppen — KEINE Analyse ──
+        # (Baustellen-Gruppen bleiben aktiv — dort werden Mitarbeiterfragen beantwortet.)
+        if not is_group:
+            print("🔒 Privatchat (DM) — keine KI-Analyse (nur Übersetzung)")
+            return
+        if chat_id and (chat_id in EXCLUDED_SHORT or
+                        (get_special_group_config(chat_id) and not is_construction_group)):
+            print("🔒 Privat-/Spezial-Gruppe — keine KI-Analyse/Freigabe (nur Übersetzung)")
+            return
         if SMART_FILTER_ENABLED:
             # ── Step 0: Skip DMs completely (no AI analysis for private chats) ──
             if not is_group:
