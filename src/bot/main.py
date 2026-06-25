@@ -1998,7 +1998,8 @@ async def main():
         prefilter=prefilter,
         classifier=classifier,
         kb=kb,
-        suggestion_manager=suggestion_manager,
+        # KB-Verbesserungsvorschläge: standardmäßig AUS (Lothar: nerven). Wieder an via .env KB_SUGGESTIONS_ENABLED=True
+        suggestion_manager=(suggestion_manager if os.getenv("KB_SUGGESTIONS_ENABLED", "False") == "True" else None),
     )
     daily_report.start_scheduler()
     # ── Baufortschritt: tägliche KI-Foto-Analyse (19:05) → KI Freigaben ──
@@ -2052,7 +2053,12 @@ async def main():
         crm_api_url=os.getenv("CRM_API_URL", ""),
         crm_api_key=os.getenv("CRM_BOT_API_KEY", ""),
     )
-    lead_tracker.start_scheduler()
+    # Lead-Tracker: standardmäßig AUS (Lothar: "Lead without origin" Spam). Wieder an via .env LEAD_TRACKER_ENABLED=True
+    if os.getenv("LEAD_TRACKER_ENABLED", "False") == "True":
+        lead_tracker.start_scheduler()
+        print("✅ Lead Source Tracker ENABLED")
+    else:
+        print("⚠️  Lead Source Tracker DISABLED (weniger Rauschen)")
 
     # ── Cross-group reply handler ─────────────────────────────────────────────
     # Dynamic — rebuilds every call so new worker group mappings work without restart
