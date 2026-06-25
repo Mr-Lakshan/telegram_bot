@@ -37,6 +37,9 @@ VISION_DETAIL   = os.getenv("VISION_DETAIL", "auto")                 # low | aut
 MAX_IMAGES      = int(os.getenv("BAUFORTSCHRITT_MAX_IMAGES", "8"))   # pro Gruppe
 MAX_SCAN        = int(os.getenv("BAUFORTSCHRITT_MAX_SCAN", "300"))   # Nachrichten-Scan-Limit
 IMG_MAX_DIM     = int(os.getenv("BAUFORTSCHRITT_IMG_DIM", "1024"))
+BF_SEND_PHOTOS  = os.getenv("BAUFORTSCHRITT_SEND_PHOTOS", "True") == "True"  # Fotos beschriftet mitschicken
+# Optional: Gruppen-Namensteile, die NIE erscheinen sollen (neue Kunden ohne Baustart)
+BF_EXCLUDE = [x.strip().lower() for x in os.getenv("BAUFORTSCHRITT_EXCLUDE", "").split(",") if x.strip()]
 
 # Baustellen-Gruppen erkennen (gleiche Logik wie telegram_bot_groups.py)
 CONSTRUCTION_PREFIXES = ['baustart', 'baustelle', 'in bau', 'construction', 'nacharbeit', 'reklamation']
@@ -93,6 +96,15 @@ class BaufortschrittReporter:
             posted += await self.analyze_group(entity, name)
             await asyncio.sleep(1.0)
 
+        if posted == 0:
+            today = datetime.now(GERMANY_TZ).strftime('%d.%m.%Y')
+            try:
+                await self.bot.send_message(
+                    self.chat_id,
+                    f"🏗️ **Baufortschritt — {today}**\nKein Baufortschritt heute (keine neuen Fotos von den Baustellen)."
+                )
+            except Exception:
+                pass
         print(f"🏗️ Baufortschritt fertig — {posted} Gruppe(n) gepostet")
         return posted
 
@@ -105,10 +117,12 @@ class BaufortschrittReporter:
                 print(f"   ⏭️  {name}: keine Fotos heute")
                 return 0
             b64s = []
+            raws = []
             for m in msgs:
                 try:
                     raw = await self.user.download_media(m, file=bytes)
                     if raw:
+                        raws.append(raw)
                         b64s.append(self._to_b64(raw))
                 except Exception as de:
                     print(f"      ⚠️ Foto-Download Fehler: {de}")
@@ -123,10 +137,25 @@ class BaufortschrittReporter:
                     f"📅 {today}  ·  📸 {len(b64s)} Foto(s)\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
                     f"{summary}")
-            try:
-                await self.bot.send_message(self.chat_id, text)
-            except Exception:
-                await self.bot.send_message(self.chat_id, text.replace('**', ''))
+            # Fotos beschriftet mitschicken (Lothar: "sagen, welche Baustelle")
+            sent = False
+            if BF_SEND_PHOTOS and raws:
+                try:
+                    imgs = []
+                    for i, r in enumerate(raws):
+                        bio = BytesIO(r); bio.name = f"baustelle_{i}.jpg"; imgs.append(bio)
+                    cap = text if len(text) <= 1000 else f"🏗️ **Baufortschritt — {name}** · 📅 {today}"
+                    await self.bot.send_file(self.chat_id, imgs, caption=cap)
+                    sent = True
+                    if cap != text:
+                        await self.bot.send_message(self.chat_id, text)
+                except Exception as pe:
+                    print(f"      ⚠️ Foto-Album Fehler: {pe} — sende nur Text")
+            if not sent:
+                try:
+                    await self.bot.send_message(self.chat_id, text)
+                except Exception:
+                    await self.bot.send_message(self.chat_id, text.replace('**', ''))
             print(f"   ✅ {name}: gepostet ({len(b64s)} Fotos)")
             return 1
         except Exception as e:
@@ -153,6 +182,8 @@ class BaufortschrittReporter:
                 title = (d.name or '').strip()
                 tl = title.lower()
                 if any(tl.startswith(p) for p in CONSTRUCTION_PREFIXES):
+                    if BF_EXCLUDE and any(x in tl for x in BF_EXCLUDE):
+                        continue  # ausgeschlossen (z. B. neuer Kunde)
                     out.append((d.entity, title))
             except Exception:
                 continue
