@@ -148,6 +148,8 @@ sop_manager = SOPManager(
 # from the admin/dev groups and answers retrieval questions for free.
 link_extractor = LinkExtractor(db_path=DB)
 link_query     = LinkQueryHandler(link_extractor)
+
+# ── Selbstauskunft: Bot erklärt seine eigenen Funktionen ──
 from bot.knowledge.self_knowledge import SelfKnowledge, is_capability_question
 self_knowledge = SelfKnowledge(openai_api_key=OPENAI_API_KEY)
 
@@ -161,6 +163,9 @@ MONITORED_GROUPS = {
 # Inside handlers Telethon gives chat_id WITHOUT the -100 prefix
 # (e.g. 3552835240), so precompute the short forms for matching.
 MONITORED_SHORT = {abs(gid) % 10**10: name for gid, name in MONITORED_GROUPS.items()}
+
+# ── Vertrauliche Gruppen: KEINE Analyse, KEINE Erfassung (nur Übersetzung) ──
+# z. B. Lothar↔Rohit und Lothar↔Manisha (private Strategie-Chats).
 EXCLUDED_GROUPS = set()
 for _g in os.getenv("EXCLUDED_GROUPS", "-1003552835240,-1003790666199").split(","):
     _g = _g.strip()
@@ -168,7 +173,8 @@ for _g in os.getenv("EXCLUDED_GROUPS", "-1003552835240,-1003790666199").split(",
         try: EXCLUDED_GROUPS.add(int(_g))
         except Exception: pass
 EXCLUDED_SHORT = {abs(g) % 10**10 for g in EXCLUDED_GROUPS}
-
+if EXCLUDED_SHORT:
+    print(f"🔒 {len(EXCLUDED_SHORT)} vertrauliche Gruppe(n) — keine Analyse/Erfassung (nur Übersetzung)")
 if LINK_EXTRACTION_ENABLED:
     print(f"✅ Link extraction ENABLED for {len(MONITORED_GROUPS)} group(s)")
 else:
@@ -1015,7 +1021,7 @@ async def handle_incoming_message(event):
         # ══════════════════════════════════════════════════════════════════
 
         # ══════════════════════════════════════════════════════════════════
-        # SOP / CALL CHECK: Audio in KI Freigaben (needs event access)
+        # SOP CHECK: Voice/text SOP in KI Freigaben (needs event access)
         # Must be BEFORE _run_ai_analysis because we need event.message
         # ══════════════════════════════════════════════════════════════════
         if is_group and chat_id and APPROVAL_CHAT_ID and chat_id == abs(APPROVAL_CHAT_ID) % 10**10:
@@ -1140,6 +1146,7 @@ async def _handle_ki_freigaben_question(text, translated_text, sender_name, chat
             return
 
         question = translated_text or text
+
         # Schritt -1: Frage nach den Bot-Funktionen? (Selbstauskunft, günstig)
         try:
             if is_capability_question(question):
@@ -1233,8 +1240,28 @@ async def _run_ai_analysis(
     """Background AI analysis — does NOT block message translation."""
     try:
 
-        # ── Auto-skip check — did employee answer a pending question? ──
-        # Runs in background AFTER translation (translation is priority)
+        # ── Gruppentyp ZUERST bestimmen (Privacy-Guard braucht das) ──
+        is_construction_group = False
+        is_personal_group = False
+        if is_group and chat_title:
+            title_lower = chat_title.lower()
+            construction_prefixes = ['baustart', 'baustelle', 'in bau', 'construction', 'nacharbeit', 'reklamation']
+            is_construction_group = any(title_lower.startswith(p) for p in construction_prefixes)
+            is_personal_group = not is_construction_group
+
+        # ── PRIVACY-GUARD GANZ OBEN — vor ALLEM (auch vor "Bereits beantwortet") ──
+        # DMs + Spezial-/vertrauliche Gruppen: NUR Übersetzung, keine KI-Analyse,
+        # keine Freigabe, KEIN "Bereits beantwortet"-Hinweis. Baustellen bleiben aktiv.
+        if not is_group:
+            print("🔒 Privatchat (DM) — keine KI-Analyse (nur Übersetzung)")
+            return
+        if chat_id and (chat_id in EXCLUDED_SHORT or
+                        (get_special_group_config(chat_id) and not is_construction_group)):
+            print("🔒 Privat-/Spezial-Gruppe — keine KI-Analyse/Freigabe (nur Übersetzung)")
+            return
+
+        # ── Auto-skip check — hat ein Mitarbeiter eine offene Frage beantwortet? ──
+        # (Läuft NACH dem Guard — also nie für ausgeschlossene Gruppen)
         if is_group and approval_handler and APPROVAL_ENABLED:
             try:
                 await approval_handler.check_employee_answered(
@@ -1249,24 +1276,6 @@ async def _run_ai_analysis(
             except Exception as e:
                 print(f"   ⚠️ Auto-skip check error: {e}")
 
-        # ── Detect group type ──
-        is_construction_group = False
-        is_personal_group = False
-        if is_group and chat_title:
-            title_lower = chat_title.lower()
-            # Construction groups: "Baustart ...", "Baustelle fertig ...", "In Bau ...", "Construction ..."
-            construction_prefixes = ['baustart', 'baustelle', 'in bau', 'construction', 'nacharbeit', 'reklamation']
-            is_construction_group = any(title_lower.startswith(p) for p in construction_prefixes)
-            is_personal_group = not is_construction_group
-            # ── Privatchats (DMs) + Spezial-/vertrauliche Gruppen — KEINE Analyse ──
-        # (Baustellen-Gruppen bleiben aktiv — dort werden Mitarbeiterfragen beantwortet.)
-        if not is_group:
-            print("🔒 Privatchat (DM) — keine KI-Analyse (nur Übersetzung)")
-            return
-        if chat_id and (chat_id in EXCLUDED_SHORT or
-                        (get_special_group_config(chat_id) and not is_construction_group)):
-            print("🔒 Privat-/Spezial-Gruppe — keine KI-Analyse/Freigabe (nur Übersetzung)")
-            return
         if SMART_FILTER_ENABLED:
             # ── Step 0: Skip DMs completely (no AI analysis for private chats) ──
             if not is_group:
@@ -2002,6 +2011,7 @@ async def main():
         suggestion_manager=(suggestion_manager if os.getenv("KB_SUGGESTIONS_ENABLED", "False") == "True" else None),
     )
     daily_report.start_scheduler()
+
     # ── Baufortschritt: tägliche KI-Foto-Analyse (19:05) → KI Freigaben ──
     from bot.reports.baufortschritt import BaufortschrittReporter
     baufortschritt = BaufortschrittReporter(
@@ -2021,7 +2031,6 @@ async def main():
         approval_chat_id=APPROVAL_CHAT_ID,
         openai_api_key=OPENAI_API_KEY,
     )
-    print("✅ CallAnalyzer ready (KI Freigaben: SOP/Analyse Buttons)")
 
     # ── /fortschritt — manuelle Baufortschritt-Analyse (on-demand) ──
     @user_client.on(events.NewMessage(pattern=r'^/fortschritt', incoming=True, outgoing=True))
@@ -2046,6 +2055,9 @@ async def main():
         except Exception as e:
             print(f"⚠️ /fortschritt error: {e}")
     print("✅ /fortschritt command registered")
+
+
+
     # ── Phase 6: Lead Source Tracker ──
     lead_tracker = LeadSourceTracker(
         bot_client=bot_client,

@@ -14,11 +14,13 @@ Integration (in telegram_bot_groups.py, main()):
 
 import os
 import base64
+import json
 import asyncio
 from io import BytesIO
 from datetime import datetime, timedelta, timezone
 
 from openai import OpenAI
+from telethon.tl.types import MessageService
 
 # Pillow ist optional — wenn vorhanden, werden Bilder verkleinert (spart Kosten)
 try:
@@ -52,6 +54,7 @@ class BaufortschrittReporter:
         self.chat_id = approval_chat_id
         self.openai = OpenAI(api_key=openai_api_key or os.getenv("OPENAI_API_KEY", ""))
         self._task = None
+        self.seen_file = os.getenv("BAUFORTSCHRITT_SEEN_FILE", "baufortschritt_seen.json")
         print(f"✅ BaufortschrittReporter initialisiert "
               f"(Modell: {VISION_MODEL}, Zeit: {BF_HOUR}:{BF_MINUTE:02d}, max {MAX_IMAGES} Fotos/Gruppe)")
 
@@ -156,7 +159,11 @@ class BaufortschrittReporter:
                     await self.bot.send_message(self.chat_id, text)
                 except Exception:
                     await self.bot.send_message(self.chat_id, text.replace('**', ''))
-            print(f"   ✅ {name}: gepostet ({len(b64s)} Fotos)")
+            try:
+                self._mark_seen([f"{getattr(m, 'chat_id', '')}:{m.id}" for m in msgs])
+            except Exception:
+                pass
+            print(f"   ✅ {name}: gepostet ({len(b64s)} neue Fotos)")
             return 1
         except Exception as e:
             print(f"   ⚠️ {name}: Fehler — {e}")
@@ -190,8 +197,25 @@ class BaufortschrittReporter:
         return out
 
     # ── Heutige Fotos einer Gruppe einsammeln ──────────────────────────────────
+    def _load_seen(self) -> set:
+        try:
+            with open(self.seen_file, "r") as f:
+                return set(json.load(f))
+        except Exception:
+            return set()
+
+    def _mark_seen(self, keys):
+        try:
+            seen = self._load_seen()
+            seen.update(keys)
+            with open(self.seen_file, "w") as f:
+                json.dump(list(seen)[-3000:], f)  # Größe begrenzen
+        except Exception as e:
+            print(f"   ⚠️ seen-file Fehler: {e}")
+
     async def _todays_photos(self, entity):
         day_start = datetime.now(GERMANY_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+        seen = self._load_seen()
         out = []
         async for m in self.user.iter_messages(entity, limit=MAX_SCAN):
             if not getattr(m, 'date', None):
@@ -199,6 +223,12 @@ class BaufortschrittReporter:
             md = m.date.astimezone(GERMANY_TZ)
             if md < day_start:
                 break  # älter als heute → Schluss (Nachrichten kommen neueste zuerst)
+            # System-/Service-Nachrichten (z. B. Gruppenbild geändert) NICHT analysieren
+            if isinstance(m, MessageService) or getattr(m, 'action', None):
+                continue
+            # Schon analysiert? (kein Doppel-Analyse, nur NEUE Fotos von heute)
+            if f"{getattr(m, 'chat_id', '')}:{m.id}" in seen:
+                continue
             is_img = bool(getattr(m, 'photo', None)) or (
                 getattr(m, 'document', None)
                 and getattr(m.document, 'mime_type', '')
