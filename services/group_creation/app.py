@@ -19,6 +19,8 @@ import os
 import threading
 import time
 
+import tg_members   # robustes Add/Remove pro Nutzer (FloodWait-sicher)
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -135,27 +137,22 @@ def create_group():
         # Warm the entity cache: lets numeric user-IDs of people already in the
         # userbot's existing dialogs/groups resolve. Cold/unknown IDs still fail.
         try:
-            await client.get_dialogs(limit=200)
+            await client.get_dialogs(limit=400)
         except Exception as _wex:
             print(f"[WARN] get_dialogs warm-up failed: {_wex}")
 
-        user_entities = []
+        # FIX: user_entities haelt jetzt (label, entity)-Paare, damit jeder Nutzer
+        # EINZELN eingeladen werden kann und ein Fehlschlag nicht alle mitreisst.
+        user_entities = []          # [(label, entity), ...]
         failed_users  = []
         for u in raw_users:
             try:
-                # Integer ID — use InputPeerUser via get_input_entity
-                if isinstance(u, int) or (isinstance(u, str) and u.lstrip('-').isdigit()):
-                    uid = int(u)
-                    entity = await client.get_entity(types.PeerUser(uid))
-                else:
-                    entity = await client.get_entity(str(u).strip())
-                user_entities.append(entity)
+                entity = await tg_members.resolve_user(client, u)
+                user_entities.append((str(u), entity))
             except Exception as ex:
                 print(f"[WARN] Cannot resolve '{u}': {ex}")
-                failed_users.append(str(u))
-
-        if not user_entities:
-            user_entities = [await client.get_me()]
+                failed_users.append({'user': str(u), 'error': str(ex),
+                                     'code': tg_members._err_code(ex)})
 
         print(f"[INFO] Creating supergroup: '{title}'")
         result = await client(functions.channels.CreateChannelRequest(
@@ -171,13 +168,15 @@ def create_group():
         sg = chats_list[0]
         print(f"[INFO] Supergroup created — id: {sg.id}")
 
+        # FIX: Einladung Nutzer fuer Nutzer statt in einem Bulk-Call.
+        # Frueher liess ein einziger UserPrivacyRestrictedError die komplette
+        # Einladung scheitern -> NIEMAND war in der Gruppe, die Gruppe galt
+        # trotzdem als erfolgreich erstellt.
         if user_entities:
-            try:
-                await client(functions.channels.InviteToChannelRequest(
-                    channel=sg, users=user_entities
-                ))
-            except Exception as ex:
-                print(f"[WARN] Could not add members: {ex}")
+            _inv = await tg_members.invite_entities(client, sg, user_entities)
+            failed_users.extend(_inv['failed'])
+            print(f"[INFO] Members added: {len(_inv['added'])}, "
+                  f"skipped: {len(_inv['skipped'])}, failed: {len(_inv['failed'])}")
 
         try:
             print(f"[INFO] Adding bot {BOT_USERNAME}...")
@@ -491,17 +490,20 @@ def add_member():
         client = await _get_client()
         added, failed = [], []
 
+        # FIX: Aufloesung und Einladung getrennt, Einladung ueber tg_members
+        # (FloodWait-Handling + Drosselung + stabile Fehlercodes).
         for u in users_raw:
             try:
                 user_entity, chat_entity = await _resolve_user_and_chat(client, u, chat_id)
-                await client(functions.channels.InviteToChannelRequest(
-                    channel=chat_entity, users=[user_entity]
-                ))
-                print(f"[INFO] Added '{u}' to chat {chat_id}")
-                added.append(str(u))
             except Exception as ex:
-                print(f"[WARN] Could not add '{u}' to {chat_id}: {ex}")
-                failed.append({'user': str(u), 'error': str(ex)})
+                print(f"[WARN] Could not resolve '{u}': {ex}")
+                failed.append({'user': str(u), 'error': str(ex),
+                               'code': tg_members._err_code(ex)})
+                continue
+
+            _r = await tg_members.invite_entities(client, chat_entity, [(str(u), user_entity)])
+            added.extend(_r['added'])
+            failed.extend(_r['failed'])
 
         if failed and not added:
             raise RuntimeError('; '.join(f['error'] for f in failed))
