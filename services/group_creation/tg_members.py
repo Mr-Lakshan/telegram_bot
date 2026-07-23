@@ -36,7 +36,8 @@ from telethon import errors as tg_errors
 
 
 # ── Konfiguration ────────────────────────────────────────────────────────
-DEFAULT_DELAY   = 1.5    # Sekunden zwischen zwei Telegram-Calls
+DEFAULT_DELAY   = 1.5    # Sekunden zwischen zwei Telegram-Calls (Hinzufuegen)
+REMOVE_DELAY    = 6.0    # Entfernen wird von Telegram viel haerter limitiert
 MAX_FLOOD_WAIT  = 120    # Länger als das warten wir nicht — Rest wird gemeldet
 
 
@@ -209,7 +210,7 @@ async def invite_users(client, chat_entity, idents, delay: float = DEFAULT_DELAY
     return {'added': added, 'skipped': skipped, 'failed': failed, 'flood_wait': flood_wait}
 
 
-async def remove_users(client, chat_entity, idents, delay: float = DEFAULT_DELAY) -> dict:
+async def remove_users(client, chat_entity, idents, delay: float = REMOVE_DELAY) -> dict:
     """Wie invite_users, nur entfernend (Kick + Unban, damit der Nutzer neu beitreten kann)."""
     removed, skipped, failed = [], [], []
     flood_wait = None
@@ -223,21 +224,10 @@ async def remove_users(client, chat_entity, idents, delay: float = DEFAULT_DELAY
             continue
 
         try:
-            await client(functions.channels.EditBannedRequest(
-                channel=chat_entity,
-                participant=entity,
-                banned_rights=types.ChatBannedRights(until_date=None, view_messages=True)
-            ))
-            # Sofort entbannen -> Nutzer kann später wieder hinzugefügt werden
-            try:
-                await client(functions.channels.EditBannedRequest(
-                    channel=chat_entity,
-                    participant=entity,
-                    banned_rights=types.ChatBannedRights(until_date=None, view_messages=False)
-                ))
-            except Exception:
-                pass
-
+            # NUR EIN EditBannedRequest. Die frueheren zwei Calls (kick + sofort
+            # entbannen) haben das Telegram-Limit doppelt so schnell ausgeloest.
+            # kick_participant erledigt Kick und Entbannen in einem Schritt.
+            await client.kick_participant(chat_entity, entity)
             print(f"[INFO] Removed '{u}'")
             removed.append(u)
 
