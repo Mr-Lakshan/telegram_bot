@@ -57,7 +57,7 @@ services:
     build: .
     container_name: transcription_api
     working_dir: /app
-    command: python services/transcription_api/app.py
+    command: python services/group_creation/transcription_api_app.py
     environment:
       - PYTHONPATH=/app/src
       - PYTHONUNBUFFERED=1
