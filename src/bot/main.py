@@ -825,6 +825,46 @@ async def outgoing_worker():
 # MESSAGE HANDLER
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Telegram's hard limit is 4096 characters. 3500 leaves room for the sender name
+# and language label that the forwarded form prepends. Same value the call
+# analysis module already uses.
+TG_LIMIT = 3500
+
+
+def _tg_chunks(text: str, limit: int = TG_LIMIT):
+    """
+    Split a message so Telegram accepts it, breaking on paragraph or line
+    boundaries where possible so a sentence is not cut in half.
+
+    Nothing in the translation path split messages before this. The forwarded
+    form carries the original AND the translation in one message, so it passed
+    4096 on messages nowhere near the limit individually — and Telegram simply
+    dropped them, leaving no trace in the group.
+    """
+    if len(text) <= limit:
+        return [text]
+
+    parts, current = [], ""
+    for block in text.split("\n\n"):
+        candidate = (current + "\n\n" + block) if current else block
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            parts.append(current)
+        # A single paragraph over the limit still has to be cut somewhere.
+        while len(block) > limit:
+            cut = block.rfind("\n", 0, limit)
+            if cut < limit // 2:
+                cut = limit
+            parts.append(block[:cut])
+            block = block[cut:].lstrip("\n")
+        current = block
+    if current:
+        parts.append(current)
+    return parts
+
+
 @user_client.on(events.NewMessage(incoming=True, outgoing=True))
 async def handle_incoming_message(event):
     try:
@@ -967,19 +1007,41 @@ async def handle_incoming_message(event):
                 target_groups.append(dest_chat_id)
             print(f"   📡 Sending to groups: {target_groups}")
 
+            # A mixed-language message (English with a German sign-off, quoted
+            # button labels, names) can be detected as the wrong language. When
+            # that happens the real target gets filtered out of this list and the
+            # recipient silently receives nothing in their language.
+            #
+            # Below 80 confidence, trust nothing and translate into every
+            # configured language. A redundant same-language translation is
+            # cheap; a missing one is invisible.
+            _det   = source_language['code']
+            _conf  = int(source_language.get('confidence') or 0)
+            _trust = _conf >= 80
+
             langs = []
             if special_cfg:
-                # Special group: translate to ALL configured languages, skip the source
                 all_langs = _special_langs(special_cfg)
-                langs = [l for l in all_langs if l != source_language['code']]
-                print(f"   🌍 Special: {all_langs} | detected={source_language['code']} → {langs}")
+                langs = [l for l in all_langs if (l != _det or not _trust)]
+                print(f"   🌍 Special: {all_langs} | detected={_det} "
+                      f"(conf {_conf}) → {langs}")
             else:
-                langs = [l for l in TRANSLATION_SETTINGS['group_languages'] if l != source_language['code']]
+                langs = [l for l in TRANSLATION_SETTINGS['group_languages']
+                         if (l != _det or not _trust)]
+                print(f"   🌍 detected={_det} (conf {_conf}) → {langs}")
 
             computed = {}
             for tl in langs:
                 ln = translator.LANGUAGES.get(tl, tl)
-                tr = translator.translate(text=text, target_lang=tl, source_lang=source_language['code'])
+                tr = translator.translate(text=text, target_lang=tl,
+                                          source_lang=source_language['code'])
+                if tr.get('failed'):
+                    # Do not post the untranslated original as if it were a
+                    # translation. A visible failure gets reported; a silent one
+                    # just looks like the bot ignored the message.
+                    print(f"   ❌ Translation FAILED → {ln}: {tr.get('error')}")
+                    computed[tl] = (ln, f"⚠️ Übersetzung fehlgeschlagen ({ln}).")
+                    continue
                 computed[tl] = (ln, tr['translated_text'])
                 print(f"   ✅ Translated → {ln}")
 
@@ -991,14 +1053,16 @@ async def handle_incoming_message(event):
                         msg_text = f"{group_tag}👤 {sender_name}:\n{text}\n\n{ln}:\n{translated_text}"
                     else:
                         msg_text = translated_text
-                    await async_queue_message(
-                        user_id=user_id, message=msg_text,
-                        chat_id=grp_id, topic_id=topic_id,
-                        target_language=tl,
-                        message_category='translation', sender_type='bot', is_group=True,
-                        sender_name=sender_name,
-                        original_msg_id=message.id,   # ← original msg ID pass karo
-                    )
+                    # Telegram rejects anything over 4096 characters.
+                    for _part in _tg_chunks(msg_text):
+                        await async_queue_message(
+                            user_id=user_id, message=_part,
+                            chat_id=grp_id, topic_id=topic_id,
+                            target_language=tl,
+                            message_category='translation', sender_type='bot', is_group=True,
+                            sender_name=sender_name,
+                            original_msg_id=message.id,
+                        )
                 print(f"   ✅ Queued to group {grp_id}")
 
         if sender_id == YOUR_USER_ID:
@@ -2288,18 +2352,33 @@ async def main():
             source_lang = translator.detect_language(text)
 
             # Check special group config first
+            # Same confidence guard as the userbot handler above. Both handlers
+            # broadcast translations, so fixing only one leaves half the paths
+            # broken.
+            _det   = source_lang['code']
+            _conf  = int(source_lang.get('confidence') or 0)
+            _trust = _conf >= 80
+
             special_cfg = get_special_group_config(chat_id)
             if special_cfg:
                 all_langs = _special_langs(special_cfg)
-                langs = [l for l in all_langs if l != source_lang['code']]
-                print(f"   🌍 Special: {all_langs} | detected={source_lang['code']} → {langs}")
+                langs = [l for l in all_langs if (l != _det or not _trust)]
+                print(f"   🌍 Special: {all_langs} | detected={_det} "
+                      f"(conf {_conf}) → {langs}")
             else:
-                langs = [l for l in TRANSLATION_SETTINGS.get('group_languages', []) if l != source_lang['code']]
+                langs = [l for l in TRANSLATION_SETTINGS.get('group_languages', [])
+                         if (l != _det or not _trust)]
+                print(f"   🌍 detected={_det} (conf {_conf}) → {langs}")
 
             computed = {}
             for tl in langs:
                 ln = translator.LANGUAGES.get(tl, tl)
-                tr = translator.translate(text=text, target_lang=tl, source_lang=source_lang['code'])
+                tr = translator.translate(text=text, target_lang=tl,
+                                          source_lang=source_lang['code'])
+                if tr.get('failed'):
+                    print(f"   ❌ Translation FAILED → {ln}: {tr.get('error')}")
+                    computed[tl] = (ln, f"⚠️ Übersetzung fehlgeschlagen ({ln}).")
+                    continue
                 computed[tl] = (ln, tr['translated_text'])
 
             if not computed:
@@ -2314,14 +2393,16 @@ async def main():
                         msg_text = f"{group_tag}👤 {sender_name}:\n{text}\n\n{ln}:\n{translated_text}"
                     else:
                         msg_text = translated_text
-                    await async_queue_message(
-                        user_id=sender_id, message=msg_text,
-                        chat_id=grp_id, topic_id=topic_id,
-                        target_language=tl,
-                        sender_name=sender_name,
-                        message_category='translation', sender_type='bot', is_group=True,
-                        original_msg_id=msg.id,   # ← original msg ID pass karo
-                    )
+                    # Telegram rejects anything over 4096 characters.
+                    for _part in _tg_chunks(msg_text):
+                        await async_queue_message(
+                            user_id=sender_id, message=_part,
+                            chat_id=grp_id, topic_id=topic_id,
+                            target_language=tl,
+                            sender_name=sender_name,
+                            message_category='translation', sender_type='bot', is_group=True,
+                            original_msg_id=msg.id,
+                        )
                 print(f"   ✅ Queued to group {grp_id}")
 
         except Exception as e:

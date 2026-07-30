@@ -64,9 +64,18 @@ class OpenAITranslator:
         if not text or len(text.strip()) < 3:
             return {'code': 'en', 'name': 'English', 'confidence': 0}
         
-        prompt = f"""Detect the language of this text and return ONLY a JSON object.
+        # Only the first part matters for detection, and a shorter prompt is both
+        # cheaper and less likely to be derailed by quoted foreign phrases later
+        # in a long message.
+        sample = text.strip()[:1200]
 
-TEXT: "{text}"
+        prompt = f"""Detect the MAIN language of this text and return ONLY a JSON object.
+
+The text may mix languages. It often contains quoted phrases, names, button
+labels or a sign-off in another language. Judge by the language most of the
+SENTENCES are written in, not by individual quoted words.
+
+If the text is genuinely mixed with no clear majority, lower the confidence.
 
 Return format:
 {{
@@ -75,7 +84,12 @@ Return format:
   "confidence": 95
 }}
 
-Common codes: hi=Hindi, en=English, de=German, pl=Polish, ru=Russian"""
+Common codes: hi=Hindi, en=English, de=German, pl=Polish, ru=Russian
+
+TEXT:
+<<<
+{sample}
+>>>"""
 
         try:
             response = self.client.chat.completions.create(
@@ -196,10 +210,16 @@ IMPORTANT RULES:
                         "content": prompt
                     }
                 ],
-                temperature=0.3
+                temperature=0.3,
+                # A translation is roughly the same length as its source. This
+                # ceiling is generous enough never to clip a chat message while
+                # still bounding a runaway response.
+                max_tokens=4000
             )
             
             translated_text = response.choices[0].message.content.strip()
+            if not translated_text:
+                raise RuntimeError("model returned an empty translation")
             
             # Remove quotes if GPT added them
             if translated_text.startswith('"') and translated_text.endswith('"'):
@@ -220,12 +240,19 @@ IMPORTANT RULES:
             return result
             
         except Exception as e:
-            print(f"❌ Translation error: {e}")
+            # The original text is still returned so the caller can fall back to
+            # it, but 'failed' makes the failure visible. Previously a failed
+            # call looked identical to a successful one, so a message that never
+            # got translated was posted as if it had been — with nothing to see
+            # except a line on stdout.
+            print(f"❌ Translation error ({source_lang}→{target_lang}, "
+                  f"{len(text)} chars): {e}")
             return {
-                'translated_text': text,  # Return original on error
+                'translated_text': text,
                 'source_lang': source_lang,
                 'target_lang': target_lang,
                 'original_text': text,
+                'failed': True,
                 'error': str(e)
             }
     
