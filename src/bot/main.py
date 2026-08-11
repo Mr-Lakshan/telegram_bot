@@ -68,6 +68,23 @@ DB = "bot_data.db"
 from bot.core.db_writer import db_writer as _dbw
 _dbw.init(DB)
 
+# ── Temporary full capture (testing) ────────────────────────────────────────
+# Normally only group messages are stored: private chats were deliberately left
+# out for privacy, and excluded groups are skipped entirely. That makes
+# tail_messages.py show an incomplete picture, which is fine day to day and not
+# fine when you are testing.
+#
+# With CAPTURE_ALL=1 every message the account sees is written to
+# group_messages, so the terminal view is complete. Nothing else changes: AI
+# analysis, approvals and link extraction stay gated by their own checks
+# further down, so this only affects what is recorded — never what is acted on.
+#
+# Off unless the variable is set, so it cannot be left on by accident after a
+# session of testing.
+CAPTURE_ALL = os.getenv("CAPTURE_ALL", "0").split("#", 1)[0].strip() == "1"
+if CAPTURE_ALL:
+    print("⚠️  CAPTURE_ALL is on — every message is being stored, including DMs")
+
 _processed_translation_events = set()
 _processed_incoming = set()  # Separate dedup for incoming messages (prevents double translation)
 _processed_incoming_order = []  # FIFO order for bounded cleanup
@@ -940,6 +957,21 @@ async def handle_incoming_message(event):
                 chat_id=chat_id, topic_id=topic_id,
                 sender_id=sender_id, sender_name=sender_name,
                 message_text=text, chat_title=chat_title, topic_name=topic_name,
+            )
+        elif CAPTURE_ALL and text:
+            # A private chat. chat_id/chat_title were set to None/'' above
+            # because the normal path has no use for them, so they are taken
+            # from the chat here. Labelled "DM:" so these rows are obvious in
+            # the table and easy to delete afterwards.
+            dm_name = (getattr(chat, 'first_name', '') or '')
+            if getattr(chat, 'last_name', None):
+                dm_name = f"{dm_name} {chat.last_name}".strip()
+            dm_name = dm_name or getattr(chat, 'username', '') or str(getattr(chat, 'id', ''))
+            print(f"💬 DM: {dm_name}")
+            await async_store_group_message(
+                chat_id=getattr(chat, 'id', None), topic_id=None,
+                sender_id=sender_id, sender_name=sender_name,
+                message_text=text, chat_title=f"DM: {dm_name}", topic_name='',
             )
 
             # ── Capture reusable knowledge from monitored dev groups (24/7) ──
