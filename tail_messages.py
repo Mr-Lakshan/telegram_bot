@@ -57,8 +57,16 @@ def connect(path: str) -> sqlite3.Connection:
     """
     Open read-only.
 
-    The immutable=0 URI form still sees writes from the other processes, which
-    is the point — the bot keeps inserting while this is running.
+    The bot writes in WAL mode, where a committed row lives in bot_data.db-wal
+    until a checkpoint folds it back into the main file. A long-lived read-only
+    connection can keep serving an older snapshot in that situation, which looks
+    exactly like "the message never arrived" — the data is there, this process
+    just cannot see it yet.
+
+    The follow loop therefore reconnects on every poll rather than holding one
+    connection open. At one connection per second that costs nothing, and it
+    removes the whole class of problem instead of reasoning about when a
+    snapshot does or does not refresh.
     """
     if not os.path.exists(path):
         sys.exit(f"Database not found: {path}\n"
@@ -200,20 +208,28 @@ def main() -> None:
           f"{' · filter: ' + args.grep if args.grep else ''}"
           f"{where}{c.reset}")
 
+    conn.close()
+
     try:
         while True:
-            for row in conn.execute(
-                    "SELECT * FROM group_messages WHERE id > ? ORDER BY id", (last_in,)):
-                last_in = row["id"]
-                if keep(row["message_text"], row["chat_id"]):
-                    show_in(row)
+            # Fresh connection each cycle — see connect() for why.
+            poll = connect(args.db)
+            try:
+                for row in poll.execute(
+                        "SELECT * FROM group_messages WHERE id > ? ORDER BY id", (last_in,)):
+                    last_in = row["id"]
+                    if keep(row["message_text"], row["chat_id"]):
+                        show_in(row)
 
-            if show_outgoing:
-                for row in conn.execute(
-                        "SELECT * FROM outgoing_messages WHERE id > ? ORDER BY id", (last_out,)):
-                    last_out = row["id"]
-                    if keep(row["message"], row["chat_id"]):
-                        show_out(row)
+                if show_outgoing:
+                    for row in poll.execute(
+                            "SELECT * FROM outgoing_messages WHERE id > ? ORDER BY id",
+                            (last_out,)):
+                        last_out = row["id"]
+                        if keep(row["message"], row["chat_id"]):
+                            show_out(row)
+            finally:
+                poll.close()
 
             time.sleep(POLL_SECONDS)
 
@@ -224,7 +240,7 @@ def main() -> None:
         # checkpoint. Worth naming rather than dying with a bare traceback.
         sys.exit(f"\nDatabase error: {exc}")
     finally:
-        conn.close()
+        pass
 
 
 if __name__ == "__main__":
