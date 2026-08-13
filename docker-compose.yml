@@ -1,7 +1,29 @@
-
 # Restructured (Paket-Layout). Laufzeit-Pfade bleiben relativ (wie bisher) —
-# DB/Session liegen weiter im Wurzelverzeichnis, daher sind die Volumes wie zuvor.
-# Einzige Änderungen: command = python -m bot.main + PYTHONPATH=/app/src.
+# command = python -m bot.main + PYTHONPATH=/app/src.
+#
+# ── bot_data.db is mounted as a DIRECTORY, not as a file ────────────────────
+#
+# It used to be "./bot_data.db:/app/bot_data.db". A single-file bind mount shares
+# exactly that one file — but SQLite in WAL mode keeps committed rows in
+# bot_data.db-wal next to it, and folds them into the main file only at a
+# checkpoint. Those -wal and -shm files were being created inside each
+# container, where nothing else could see them.
+#
+# Two consequences, both observed:
+#
+#   1. Rows written by the bot never appeared on the host. The container had
+#      id 16957; the host file still ended at 16955 and had not been touched
+#      for hours.
+#
+#   2. Worse: -shm is how concurrent SQLite processes coordinate their locking.
+#      Three containers each had a private one, so each believed it was the only
+#      writer. That is the actual route to a corrupted database.
+#
+# Mounting the directory puts bot_data.db, -wal and -shm all on the host, where
+# every container shares them. /app/bot_data.db is a symlink into that directory
+# (created in the Dockerfile), so the relative paths throughout the code keep
+# working unchanged — SQLite resolves the symlink and places -wal beside the
+# real file.
 
 services:
   telegram_bot:
@@ -16,7 +38,7 @@ services:
     ports:
       - "5002:5002"
     volumes:
-      - ./bot_data.db:/app/bot_data.db
+      - ./dbdata:/app/dbdata
       - ./bot_session.session:/app/bot_session.session
       - ./main_session.session:/app/main_session.session
       - ./user_session.session:/app/user_session.session
@@ -37,7 +59,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./bot_data.db:/app/bot_data.db
+      - ./dbdata:/app/dbdata
     env_file:
       - .env
 
@@ -47,10 +69,10 @@ services:
     command: python app.py
     restart: always
     ports:
-      - "5001:5001"
+      - "127.0.0.1:5001:5001"
     volumes:
       - ./group_creator_session.session:/app/group_creator_session.session
-      - ./bot_data.db:/app/bot_data.db
+      - ./dbdata:/app/dbdata
     env_file:
       - .env
   transcription_api:
@@ -64,6 +86,7 @@ services:
     restart: always
     ports:
       - "5003:5003"
+    volumes:
+      - ./dbdata:/app/dbdata
     env_file:
       - .env
- 
