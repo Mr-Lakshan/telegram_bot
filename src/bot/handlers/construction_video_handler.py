@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, List, Tuple
 from openai import OpenAI
 from bot.config import OPENAI_API_KEY, BUSINESS_INFO
+from bot.core.whisper_vocab import vocab_prompt
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -193,7 +194,12 @@ def extract_audio(input_path: str, media_type: str) -> str:
         "ffmpeg", "-i", input_path,
         "-vn",                   # No video
         "-acodec", "libmp3lame", # MP3 codec
-        "-ab", "128k",           # 128kbps bitrate (good enough for speech)
+        "-ab", "32k",            # 32kbps — bei 16 kHz mono erkennt Whisper
+                                 # nicht schlechter als bei 128k, die Datei
+                                 # ist aber ein Viertel so gross. Der Upload
+                                 # dauert entsprechend kuerzer, und Whispers
+                                 # 25-MB-Grenze entspricht damit rund 100
+                                 # statt rund 26 Minuten Aufnahme.
         "-ar", "16000",          # 16kHz sample rate (optimal for Whisper)
         "-ac", "1",              # Mono (speech doesn't need stereo)
         "-y",                    # Overwrite
@@ -232,13 +238,33 @@ def transcribe_audio(audio_path: str, language_hint: str = None) -> Dict:
     Transcribe audio using OpenAI Whisper API.
 
     Args:
-        audio_path: Path to audio file
-        language_hint: ISO language code hint (e.g. 'de', 'pl')
+        audio_path:    Path to audio file
+        language_hint: ISO language code ('de', 'pl'). None = let Whisper
+                       detect the language itself.
 
     Returns:
-        {'text': str, 'language': str}
+        {'text': str, 'language': str, 'segments': list}
+
+    ── Warum language_hint jetzt None sein darf ──────────────────────────────
+    Bis 04.09.2026 hat jeder Aufrufer fest "de" uebergeben. Bei einer polnisch
+    sprechenden Kraft presst Whisper die Laute dann in deutsche Woerter — das
+    Ergebnis ist nicht ungenau, sondern unbrauchbar, und es sieht dabei aus wie
+    schlechtes Deutsch statt wie die falsche Sprache. Deshalb faellt es beim
+    Lesen nicht auf, und deshalb hat es so lange gedauert, bis es jemandem
+    aufgefallen ist.
+
+    Ohne Angabe erkennt Whisper die Sprache selbst. Die Oberflaeche kann sie
+    weiterhin erzwingen, wenn die Erkennung bei einer kurzen oder verrauschten
+    Aufnahme daneben liegt.
+
+    ── Warum ein prompt mitgeschickt wird ────────────────────────────────────
+    Whisper raet bei Fachbegriffen und Eigennamen, und zwar zuverlaessig gleich
+    falsch: "Wannentuer" wird zu "Wanne. Tuer", "Premiobad" zu irgendetwas. Der
+    prompt zeigt ihm die erwarteten Woerter — ein Parameter, keine Zusatzkosten,
+    keine zusaetzliche Laufzeit.
     """
-    print(f"   🎤 Transcribing with Whisper ({WHISPER_MODEL})...")
+    print(f"   🎤 Transcribing with Whisper ({WHISPER_MODEL}, "
+          f"Sprache: {language_hint or 'automatisch'})...")
 
     # Check file size — Whisper API limit is 25MB
     file_size = os.path.getsize(audio_path) / (1024 * 1024)
@@ -250,6 +276,11 @@ def transcribe_audio(audio_path: str, language_hint: str = None) -> Dict:
             "model": WHISPER_MODEL,
             "file": audio_file,
             "response_format": "verbose_json",  # Get language info
+            # Zur gewaehlten Sprache passende Vokabelliste. Bei automatischer
+            # Erkennung eine neutrale — ein deutscher prompt wuerde die
+            # Spracherkennung Richtung Deutsch ziehen, also genau der Fehler,
+            # den diese Aenderung abstellt.
+            "prompt": vocab_prompt(language_hint),
         }
         if language_hint:
             kwargs["language"] = language_hint
@@ -259,12 +290,29 @@ def transcribe_audio(audio_path: str, language_hint: str = None) -> Dict:
     transcript_text = response.text if hasattr(response, 'text') else str(response)
     detected_lang = getattr(response, 'language', language_hint or 'unknown')
 
-    print(f"   ✅ Transcribed: {len(transcript_text)} chars | Language: {detected_lang}")
+    # verbose_json liefert Segmente mit Zeitstempeln mit. Die wurden bisher
+    # weggeworfen, obwohl sie schon bezahlt sind — sie sind die Grundlage fuer
+    # Sprecherzuordnung und Sprungmarken, und sie kosten hier nichts.
+    segments = []
+    for i, s in enumerate(getattr(response, "segments", None) or []):
+        text = (getattr(s, "text", "") or "").strip()
+        if not text:
+            continue
+        segments.append({
+            "i": i,
+            "start": round(float(getattr(s, "start", 0.0)), 3),
+            "end": round(float(getattr(s, "end", 0.0)), 3),
+            "text": text,
+        })
+
+    print(f"   ✅ Transcribed: {len(transcript_text)} chars | "
+          f"Language: {detected_lang} | Segments: {len(segments)}")
     print(f"   📝 Preview: {transcript_text[:150]}...")
 
     return {
         "text": transcript_text,
         "language": detected_lang,
+        "segments": segments,
     }
 
 
@@ -530,7 +578,9 @@ async def process_construction_video(
 
         # ── Step 3: Transcribe ────────────────────────────────────────────
         # Hint German since Lothar speaks German
-        transcription = transcribe_audio(audio_path, language_hint="de")
+        # Ohne Angabe: Whisper erkennt die Sprache. Baustellenvideos kommen
+        # von den Monteuren, und die sprechen nicht alle Deutsch.
+        transcription = transcribe_audio(audio_path)
         transcript = transcription['text']
         transcript_lang = transcription['language']
 

@@ -72,7 +72,9 @@ class CallAnalyzer:
             # 1) Download + 2) Audio extrahieren + 3) Whisper (wiederverwendet)
             media_path, media_type = await download_media(self.user, message)
             audio_path = extract_audio(media_path, media_type)
-            tr = transcribe_audio(audio_path, language_hint="de")
+            # Sprache wird erkannt statt erzwungen — ein polnisch
+            # gefuehrtes Gespraech kam als deutscher Unsinn zurueck.
+            tr = transcribe_audio(audio_path)
             transcript = (tr.get("text") or "").strip()
 
             if len(transcript) < 10:
