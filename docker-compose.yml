@@ -75,30 +75,31 @@ services:
       - ./dbdata:/app/dbdata
     env_file:
       - .env
-  transcription_api:
-    build: .
-    container_name: transcription_api
-    working_dir: /app
-    command: python services/group_creation/transcription_api_app.py
-    environment:
-      - PYTHONPATH=/app/src
-      - PYTHONUNBUFFERED=1
-    restart: always
-    # ── Warum dieser Port offen ist, group_creator seiner aber nicht ──
-    # Das CRM laeuft auf anderem Hosting und erreicht 127.0.0.1 dieses
-    # Servers nicht, also muss 5003 von aussen erreichbar bleiben.
-    #
-    # Die Absicherung ist deshalb der X-API-Key, und der wird seit dem
-    # 04.09.2026 auch wirklich geprueft: vorher stand dort
-    # "if API_KEY and ..." — bei nicht gesetztem TRANSCRIBE_API_KEY war
-    # die Pruefung damit vollstaendig aus, auf einem oeffentlichen Port.
-    #
-    # Zusaetzlich gehoert hier eine Firewall-Regel hin, die nur die
-    # Adresse des CRM-Hosts durchlaesst. Mit dem Umzug hinter
-    # vt.teampflegeinfo.de faellt beides weg.
-    ports:
-      - "5003:5003"
-    volumes:
-      - ./dbdata:/app/dbdata
-    env_file:
-      - .env
+# ── transcription_api wurde am 04.09.2026 entfernt ──────────────────────────
+#
+# Der Dienst lief hier auf Port 5003 und wurde von crm/admin/transcription.php
+# über admin/transcribe_proxy.php angesprochen. Beides ist weg: die
+# Transkription läuft jetzt im video-translate-Dienst als Auftragsart
+# "transcribe".
+#
+# Drei Gründe, alle beobachtet:
+#
+#   1. Eine Anfrage blieb von der Datei bis zur fertigen Analyse offen. Der
+#      CRM-Host bricht nach 60 Sekunden ab, eine Transkription dauert länger.
+#   2. Die Datei ging zweimal über das Netz und musste in die 32-MB-Grenze des
+#      CRM-Hosts passen. Der video-translate-Dienst nimmt sie direkt entgegen.
+#   3. Nichts wurde gespeichert. Tab zu, Ergebnis weg.
+#
+# Nebenbei behoben: dieser Port war als "5003:5003" veröffentlicht, also aus
+# dem Internet erreichbar, während der Dienst die Schlüsselprüfung bei nicht
+# gesetztem TRANSCRIBE_API_KEY komplett übersprang.
+#
+# Der Container baute außerdem aus dem Bot-Image und importierte
+# bot.handlers.construction_video_handler — die Transkription im CRM hing damit
+# am Code des Telegram-Bots. Auch diese Kopplung ist weg.
+#
+# Zum Aufräumen auf dem Server:
+#   docker compose stop transcription_api && docker compose rm -f transcription_api
+#
+# services/group_creation/transcription_api_app.py und
+# crm/admin/transcribe_proxy.php können gelöscht werden.
