@@ -66,6 +66,9 @@ class BaufortschrittReporter:
         self._task = asyncio.ensure_future(self._loop())
         print(f"🕐 Baufortschritt-Scheduler gestartet (täglich {BF_HOUR}:{BF_MINUTE:02d} Uhr)")
 
+
+        
+
     async def _loop(self):
         while True:
             try:
@@ -270,7 +273,7 @@ class BaufortschrittReporter:
             content.append({
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{b}", "detail": VISION_DETAIL},
-            })
+                })
         try:
             resp = self.openai.chat.completions.create(
                 model=VISION_MODEL,

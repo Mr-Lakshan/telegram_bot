@@ -29,8 +29,11 @@ from bot.knowledge.conversation_learner import ConversationLearner
 
 # ── Config ──
 OPUS_MODEL = "claude-opus-4-7"
-REPORT_HOUR = 19  # 19:00 Uhr German time
-REPORT_MINUTE = 0
+# 23.10.2026: time can be set in .env (DAILY_REPORT_HOUR / DAILY_REPORT_MINUTE) — default unchanged 19:00
+REPORT_HOUR = int(os.getenv("DAILY_REPORT_HOUR", "19"))  # German time
+REPORT_MINUTE = int(os.getenv("DAILY_REPORT_MINUTE", "0"))
+# 23.10.2026 — short call report (calls per employee) right after the daily report. Off: CALL_REPORT_ENABLED=False
+CALL_REPORT_ENABLED = os.getenv("CALL_REPORT_ENABLED", "True") == "True"
 # Standardmäßig KURZER Bericht (nur Zahlen, keine KI-Story). Wieder ausführlich via .env DAILY_REPORT_FULL=True
 DAILY_REPORT_FULL = os.getenv("DAILY_REPORT_FULL", "False") == "True"
 
@@ -121,6 +124,9 @@ class DailyReport:
                 print(f"📊 DAILY REPORT — {_now_germany().strftime('%d.%m.%Y %H:%M')} (German time)")
                 print(f"{'='*60}")
                 await self.generate_and_send()
+                # 23.10.2026: calls per employee — also when the chat report was skipped
+                if CALL_REPORT_ENABLED:
+                    await self.send_call_report()
 
             except asyncio.CancelledError:
                 break
@@ -426,3 +432,142 @@ Schreibe wie ein persoenlicher Berater, nicht wie ein Report-Generator. Auf Deut
         """Manually trigger the daily report (for testing)."""
         print("📊 Manual daily report trigger...")
         await self.generate_and_send()
+        if CALL_REPORT_ENABLED:
+            await self.send_call_report()
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  CALL REPORT — 23.10.2026
+    # ══════════════════════════════════════════════════════════════════════
+    # Lothar (21.10.2026): "Ich möchte jeden Abend auf einen Blick sehen, wer wie viel
+    # telefoniert hat … Zusätzlich die Erfolgsquote: wie viele Anrufversuche waren
+    # notwendig, um einen Termin oder einen ausgefüllten Antrag zu erzielen?"
+    # Short on purpose — per employee one line. The full list of calls is on the CRM page
+    # Anrufanalyse (link at the end). Numbers come from the CRM (api/bot_construction.php
+    # ?action=get_daily_call_stats) = the same calculation as that page.
+
+    def _fetch_crm_call_stats(self, date: str) -> Optional[Dict]:
+        """Calls per employee for one day from the CRM. None if the CRM cannot be reached."""
+        if not self.crm_url or not self.crm_key:
+            print("   ⚠️ Call report: CRM_API_URL / CRM_BOT_API_KEY missing in .env")
+            return None
+        try:
+            resp = requests.get(
+                self.crm_url,
+                params={'action': 'get_daily_call_stats', 'date': date},
+                headers={'X-Bot-Api-Key': self.crm_key},
+                timeout=30,
+            )
+            data = resp.json()
+            return data if data.get('success') else None
+        except Exception as e:
+            print(f"   ⚠️ Call report: CRM error: {e}")
+            return None
+
+    @staticmethod
+    def _call_num(v, decimals: int = 0) -> str:
+        """German number format: 8.1 -> '8,1'."""
+        if v is None:
+            return '—'
+        txt = f"{float(v):.{decimals}f}"
+        if '.' in txt:
+            txt = txt.rstrip('0').rstrip('.')
+        return txt.replace('.', ',')
+
+    @staticmethod
+    def _call_count(n, one: str, many: str) -> str:
+        """1 Termin / 2 Termine."""
+        n = int(n or 0)
+        return f"{n} {one if n == 1 else many}"
+
+    @staticmethod
+    def _call_day_title(date: str) -> str:
+        """'heute' for today, otherwise the weekday + date."""
+        d = datetime.strptime(date, '%Y-%m-%d')
+        tag = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][d.weekday()]
+        if date == _now_germany().strftime('%Y-%m-%d'):
+            return f"heute — {tag} {d.strftime('%d.%m.%Y')}"
+        return f"{tag} {d.strftime('%d.%m.%Y')}"
+
+    @staticmethod
+    def _call_duration(seconds) -> str:
+        s = int(seconds or 0)
+        if s < 60:
+            return f"{s} Sek."
+        if s < 3600:
+            return f"{round(s / 60)} Min."
+        return f"{s // 3600}:{(s % 3600) // 60:02d} Std."
+
+    @staticmethod
+    def _call_name(name: str) -> str:
+        """Names go between ** … ** — remove characters Telegram markdown would misread."""
+        return ''.join(ch for ch in str(name or '?') if ch not in '*_`[]').strip() or '?'
+
+    def _call_link(self, date: str) -> str:
+        """Link to the CRM page Anrufanalyse for that day."""
+        if '/api/' not in self.crm_url:
+            return ''
+        base = self.crm_url.split('/api/')[0]
+        return f"{base}/call-analysis.php?von={date}&bis={date}"
+
+    def _format_call_report(self, stats: Dict, date: str) -> str:
+        """Short: one line per employee + total + success rate + link."""
+        lines = [f"📞 **Anrufe {self._call_day_title(date)}**", ""]
+        employees = stats.get('employees') or []
+        for e in employees:
+            if not e.get('attempts') and not e.get('appointments') and not e.get('applications'):
+                continue
+            line = (f"**{self._call_name(e.get('name'))}**: {self._call_count(e.get('attempts'), 'Anruf', 'Anrufe')} · "
+                    f"{e.get('customers_reached', 0)} erreicht · {self._call_count(e.get('appointments'), 'Termin', 'Termine')} · "
+                    f"{self._call_count(e.get('applications'), 'Antrag', 'Anträge')}")
+            extra = []
+            if e.get('talk_seconds'):
+                extra.append(f"⏱ {self._call_duration(e['talk_seconds'])}")
+            if e.get('attempts_per_appointment') is not None:
+                extra.append(f"{self._call_num(e['attempts_per_appointment'], 1)} Anrufe je Termin")
+            lines.append(line)
+            if extra:
+                lines.append("   " + " · ".join(extra))
+        t = stats.get('total') or {}
+        if len(employees) > 1:
+            lines.append("")
+            lines.append(f"**Gesamt: {self._call_count(t.get('attempts'), 'Anruf', 'Anrufe')} · {t.get('customers_reached', 0)} erreicht · "
+                         f"{self._call_count(t.get('appointments'), 'Termin', 'Termine')} · "
+                         f"{self._call_count(t.get('applications'), 'Antrag', 'Anträge')}**")
+        rate = []
+        if t.get('talk_seconds'):
+            rate.append(f"⏱ Gesprächszeit {self._call_duration(t['talk_seconds'])}")
+        if t.get('attempts_per_appointment') is not None:
+            rate.append(f"🎯 {self._call_num(t['attempts_per_appointment'], 1)} Anrufe je Termin")
+        if t.get('attempts_per_application') is not None:
+            rate.append(f"{self._call_num(t['attempts_per_application'], 1)} je Antrag")
+        if rate:
+            lines.append(" · ".join(rate))
+        link = self._call_link(date)
+        if link:
+            lines.extend(["", f"Alle Anrufe: {link}"])
+        return "\n".join(lines)
+
+    async def send_call_report(self, date: Optional[str] = None) -> bool:
+        """Send the short call report to KI Freigaben. Never raises."""
+        try:
+            date = date or _now_germany().strftime('%Y-%m-%d')
+            stats = self._fetch_crm_call_stats(date)
+            if stats is None:
+                text = "📞 Anrufbericht: CRM nicht erreichbar — bitte in der Anrufanalyse im CRM nachsehen."
+            elif not (stats.get('total') or {}).get('attempts') and not (stats.get('total') or {}).get('appointments'):
+                # nothing called: on weekends say nothing, on workdays one short line
+                if datetime.strptime(date, '%Y-%m-%d').weekday() >= 5:
+                    print("   ℹ️ Call report: no calls (weekend) — skipped")
+                    return False
+                text = f"📞 Anrufe {self._call_day_title(date)}: keine."
+            else:
+                text = self._format_call_report(stats, date)
+            if self.bot and self.chat_id:
+                await self.bot.send_message(self.chat_id, text, parse_mode='md', link_preview=False)
+                print("   ✅ Call report sent to approval chat")
+                return True
+            print(text)
+            return False
+        except Exception as e:
+            print(f"   ⚠️ Call report error: {e}")
+            return False

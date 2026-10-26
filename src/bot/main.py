@@ -909,7 +909,7 @@ async def handle_incoming_message(event):
             return
 
         # Skip bot commands — don't translate them
-        if text.startswith('/setlang') or text.startswith('/removelang') or text.startswith('/grouplang') or text.startswith('/language') or text.startswith('/status') or text.startswith('/fortschritt'):
+        if text.startswith('/setlang') or text.startswith('/removelang') or text.startswith('/grouplang') or text.startswith('/language') or text.startswith('/status') or text.startswith('/fortschritt') or text.startswith('/anrufe'):
             return
 
         # Skip our own daily expense report (posted into KI Freigaben via userbot)
@@ -2151,6 +2151,25 @@ async def main():
         except Exception as e:
             print(f"⚠️ /fortschritt error: {e}")
     print("✅ /fortschritt command registered")
+
+    # ── /anrufe — Anrufbericht sofort (23.10.2026): wer hat heute wie viel telefoniert ──
+    # Same message as the automatic one after the daily report. "/anrufe 2026-10-22" = that day.
+    @user_client.on(events.NewMessage(pattern=r'^/anrufe', incoming=True, outgoing=True))
+    async def anrufe_cmd(event):
+        try:
+            if abs(int(event.chat_id or 0)) % 10**10 != abs(APPROVAL_CHAT_ID) % 10**10:
+                return                                   # only in KI Freigaben (ids with/without -100 prefix)
+            import re as _re
+            m = _re.search(r'(\d{4}-\d{2}-\d{2})', event.raw_text or '')
+            ok = await daily_report.send_call_report(m.group(1) if m else None)
+            if not ok:
+                try:
+                    await bot_client.send_message(APPROVAL_CHAT_ID, "ℹ️ Keine Anrufe für diesen Tag.")
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"⚠️ /anrufe error: {e}")
+    print("✅ /anrufe command registered")
 
 
 
