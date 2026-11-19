@@ -1962,6 +1962,13 @@ async def main():
             knowledge_base=kb,
         )
 
+        # CRM form (approval_answer.php → "Antwort senden") posts answers to port 5002
+        try:
+            from bot.approval.answer_api import start_answer_api
+            start_answer_api(approval_handler)
+        except Exception as e:
+            print(f"⚠️ Answer API not started: {e}")
+
         # Register callback handler for inline buttons (approve/edit/reject)
         @bot_client.on(events.CallbackQuery)
         async def approval_callback_handler(event):
