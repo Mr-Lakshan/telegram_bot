@@ -314,7 +314,7 @@ class ApprovalHandler:
         def _do():
             try:
                 import requests
-                requests.post(CRM_PUSH_URL, data={
+                resp = requests.post(CRM_PUSH_URL, data={
                     'bot_secret': APPROVAL_BOT_SECRET,
                     'token': token,
                     'question': question or '',
@@ -325,7 +325,14 @@ class ApprovalHandler:
                     'source_language': source_language or '',
                     'ai_confidence': str(ai_confidence or 0),
                     'ai_topic': ai_topic or '',
-                }, timeout=15)
+                }, timeout=15, allow_redirects=False)
+                # A redirect here means CRM_BASE_URL points at an old domain:
+                # requests would turn the POST into a GET and drop the data, so the
+                # token never reaches the CRM and the form later says "expired".
+                if resp.is_redirect or resp.status_code >= 400:
+                    print(f"   ⚠️ CRM approval push NOT stored: HTTP {resp.status_code} "
+                          f"from {CRM_PUSH_URL} -> {resp.headers.get('Location', '')} "
+                          f"(check CRM_BASE_URL in .env)")
             except Exception as e:
                 print(f"   ⚠️ CRM approval push failed: {e}")
         try:
